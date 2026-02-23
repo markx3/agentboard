@@ -61,7 +61,12 @@ func Spawn(ctx context.Context, svc board.Service, task db.Task) error {
 	_ = tmux.KillWindow(winName)
 
 	// Build the claude command with both system context and an initial user message
-	cmd := fmt.Sprintf("claude -w %s --append-system-prompt %s %s",
+	skipFlag := ""
+	if task.SkipPermissions {
+		skipFlag = "--dangerously-skip-permissions "
+	}
+	cmd := fmt.Sprintf("claude %s-w %s --append-system-prompt %s %s",
+		skipFlag,
 		shellQuote(slug),
 		shellQuote(sysPrompt),
 		shellQuote(initialPrompt),

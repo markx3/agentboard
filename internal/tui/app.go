@@ -26,6 +26,7 @@ const (
 	overlayForm
 	overlayDetail
 	overlayHelp
+	overlayConfirm
 )
 
 // pendingRecon tracks a task whose agent window just died.
@@ -44,6 +45,8 @@ type App struct {
 	width        int
 	height       int
 	ready        bool
+	// pendingSpawnTask holds a task awaiting skip-permissions confirmation.
+	pendingSpawnTask *db.Task
 	// pendingRecons tracks tasks in the grace period after their agent window dies.
 	pendingRecons map[string]pendingRecon
 	// lastTasks caches the latest task list for reconciliation.
@@ -262,6 +265,11 @@ func (a *App) reconcileAgents() []tea.Cmd {
 }
 
 func (a App) updateOverlay(msg tea.Msg) (tea.Model, tea.Cmd) {
+	// Confirm overlay handles its own keys (including esc)
+	if a.overlay == overlayConfirm {
+		return a.updateConfirm(msg)
+	}
+
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		switch {
@@ -285,6 +293,47 @@ func (a App) updateOverlay(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	return a, nil
+}
+
+func (a App) updateConfirm(msg tea.Msg) (tea.Model, tea.Cmd) {
+	keyMsg, ok := msg.(tea.KeyMsg)
+	if !ok {
+		return a, nil
+	}
+
+	switch keyMsg.String() {
+	case "y":
+		task := a.pendingSpawnTask
+		a.pendingSpawnTask = nil
+		a.overlay = overlayNone
+		task.SkipPermissions = true
+		return a, a.persistAndSpawn(*task)
+	case "n":
+		task := a.pendingSpawnTask
+		a.pendingSpawnTask = nil
+		a.overlay = overlayNone
+		task.SkipPermissions = false
+		return a, a.persistAndSpawn(*task)
+	case "esc":
+		a.pendingSpawnTask = nil
+		a.overlay = overlayNone
+		return a, nil
+	}
+
+	return a, nil
+}
+
+func (a App) persistAndSpawn(task db.Task) tea.Cmd {
+	return func() tea.Msg {
+		ctx := context.Background()
+		if err := a.service.UpdateTask(ctx, &task); err != nil {
+			return errMsg{fmt.Errorf("saving skip_permissions: %w", err)}
+		}
+		if err := agent.Spawn(ctx, a.service, task); err != nil {
+			return errMsg{fmt.Errorf("%s", err)}
+		}
+		return agentSpawnedMsg{taskID: task.ID}
+	}
 }
 
 func (a App) updateForm(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -323,7 +372,10 @@ func (a App) updateDetail(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if a.detail.task.AgentStatus == db.AgentActive {
 				return a, a.notify("Agent already running")
 			}
-			return a, a.spawnAgent(a.detail.task)
+			t := a.detail.task
+			a.pendingSpawnTask = &t
+			a.overlay = overlayConfirm
+			return a, nil
 		case key.Matches(msg, keys.KillAgent):
 			if a.detail.task.AgentStatus != db.AgentActive {
 				return a, a.notify("No agent running")
@@ -386,7 +438,10 @@ func (a App) updateBoard(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if task.AgentStatus == db.AgentActive {
 					return a, a.notify("Agent already running")
 				}
-				return a, a.spawnAgent(*task)
+				t := *task
+				a.pendingSpawnTask = &t
+				a.overlay = overlayConfirm
+				return a, nil
 			}
 			return a, nil
 		case key.Matches(msg, keys.KillAgent):
@@ -445,6 +500,8 @@ func (a App) View() string {
 		return a.renderOverlay(mainView, a.detail.View())
 	case overlayHelp:
 		return a.renderOverlay(mainView, a.helpView())
+	case overlayConfirm:
+		return a.renderOverlay(mainView, a.confirmView())
 	}
 
 	return mainView
@@ -487,6 +544,22 @@ General:
 Press any key to close.`
 
 	return overlayStyle.Width(a.width / 3).Render(help)
+}
+
+func (a App) confirmView() string {
+	current := ""
+	if a.pendingSpawnTask != nil && a.pendingSpawnTask.SkipPermissions {
+		current = " [currently: yes]"
+	}
+
+	content := fmt.Sprintf(`Skip permissions?%s
+
+Allow agent to run commands
+without asking for approval.
+
+  y - yes    n - no    esc - cancel`, current)
+
+	return overlayStyle.Width(40).Render(content)
 }
 
 // Command helpers
