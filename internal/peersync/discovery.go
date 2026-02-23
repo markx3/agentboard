@@ -10,8 +10,6 @@ import (
 const serverInfoPath = ".agentboard/server.json"
 
 type ServerInfo struct {
-	Host string `json:"host"`
-	Port int    `json:"port"`
 	Addr string `json:"addr"`
 }
 
@@ -29,7 +27,7 @@ func WriteServerInfo(addr string) error {
 
 	// Write atomically via temp file
 	tmp := serverInfoPath + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o644); err != nil {
+	if err := os.WriteFile(tmp, data, 0o600); err != nil {
 		return err
 	}
 	return os.Rename(tmp, serverInfoPath)

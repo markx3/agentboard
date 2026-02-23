@@ -92,6 +92,10 @@ func (h *Hub) handleMessage(ctx context.Context, cm clientMessage) {
 		if err := json.Unmarshal(msg.Payload, &p); err != nil {
 			return
 		}
+		if !db.TaskStatus(p.ToColumn).Valid() {
+			h.sendReject(cm.client, "invalid status")
+			return
+		}
 		if err := h.service.MoveTask(ctx, p.TaskID, db.TaskStatus(p.ToColumn)); err != nil {
 			h.sendReject(cm.client, err.Error())
 			return
@@ -151,22 +155,46 @@ func (h *Hub) sendFullSync(ctx context.Context, client *Client) {
 		log.Printf("failed to get tasks for sync: %v", err)
 		return
 	}
-	msg, _ := NewMessage(MsgSyncFull, "server", tasks)
+	msg, err := NewMessage(MsgSyncFull, "server", tasks)
+	if err != nil {
+		log.Printf("failed to create sync message: %v", err)
+		return
+	}
 	msg.Seq = h.sequencer.Current()
-	data, _ := json.Marshal(msg)
+	data, err := json.Marshal(msg)
+	if err != nil {
+		log.Printf("failed to marshal sync message: %v", err)
+		return
+	}
 	client.send <- data
 }
 
 func (h *Hub) sendReject(client *Client, reason string) {
-	msg, _ := NewMessage(MsgSyncReject, "server", SyncRejectPayload{Reason: reason})
-	data, _ := json.Marshal(msg)
+	msg, err := NewMessage(MsgSyncReject, "server", SyncRejectPayload{Reason: reason})
+	if err != nil {
+		log.Printf("failed to create reject message: %v", err)
+		return
+	}
+	data, err := json.Marshal(msg)
+	if err != nil {
+		log.Printf("failed to marshal reject message: %v", err)
+		return
+	}
 	client.send <- data
 }
 
 func (h *Hub) broadcastAll(msgType string, payload interface{}) {
-	msg, _ := NewMessage(msgType, "server", payload)
+	msg, err := NewMessage(msgType, "server", payload)
+	if err != nil {
+		log.Printf("failed to create broadcast message: %v", err)
+		return
+	}
 	msg.Seq = h.sequencer.Next()
-	data, _ := json.Marshal(msg)
+	data, err := json.Marshal(msg)
+	if err != nil {
+		log.Printf("failed to marshal broadcast message: %v", err)
+		return
+	}
 	for client := range h.clients {
 		select {
 		case client.send <- data:
@@ -178,9 +206,17 @@ func (h *Hub) broadcastAll(msgType string, payload interface{}) {
 }
 
 func (h *Hub) broadcastExcept(except *Client, msgType string, payload interface{}) {
-	msg, _ := NewMessage(msgType, "server", payload)
+	msg, err := NewMessage(msgType, "server", payload)
+	if err != nil {
+		log.Printf("failed to create broadcast message: %v", err)
+		return
+	}
 	msg.Seq = h.sequencer.Next()
-	data, _ := json.Marshal(msg)
+	data, err := json.Marshal(msg)
+	if err != nil {
+		log.Printf("failed to marshal broadcast message: %v", err)
+		return
+	}
 	for client := range h.clients {
 		if client == except {
 			continue
@@ -195,7 +231,11 @@ func (h *Hub) broadcastExcept(except *Client, msgType string, payload interface{
 }
 
 func (h *Hub) broadcastAllRaw(msg Message) {
-	data, _ := json.Marshal(msg)
+	data, err := json.Marshal(msg)
+	if err != nil {
+		log.Printf("failed to marshal raw broadcast: %v", err)
+		return
+	}
 	for client := range h.clients {
 		select {
 		case client.send <- data:
@@ -206,6 +246,3 @@ func (h *Hub) broadcastAllRaw(msg Message) {
 	}
 }
 
-func (h *Hub) PeerCount() int {
-	return len(h.clients)
-}

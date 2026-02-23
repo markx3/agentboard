@@ -16,7 +16,7 @@ type DB struct {
 
 func Open(dbPath string) (*DB, error) {
 	dir := filepath.Dir(dbPath)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, fmt.Errorf("creating db directory: %w", err)
 	}
 
@@ -44,10 +44,6 @@ func Open(dbPath string) (*DB, error) {
 
 func (d *DB) Close() error {
 	return d.conn.Close()
-}
-
-func (d *DB) Conn() *sql.DB {
-	return d.conn
 }
 
 func applyPragmas(conn *sql.DB) error {

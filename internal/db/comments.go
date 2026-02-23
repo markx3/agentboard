@@ -3,6 +3,7 @@ package db
 import (
 	"context"
 	"fmt"
+	"log"
 	"time"
 
 	"github.com/google/uuid"
@@ -44,7 +45,11 @@ func (d *DB) ListComments(ctx context.Context, taskID string) ([]Comment, error)
 		if err := rows.Scan(&c.ID, &c.TaskID, &c.Author, &c.Body, &createdAt); err != nil {
 			return nil, fmt.Errorf("scanning comment: %w", err)
 		}
-		c.CreatedAt, _ = time.Parse(time.RFC3339, createdAt)
+		var parseErr error
+		c.CreatedAt, parseErr = time.Parse(time.RFC3339, createdAt)
+		if parseErr != nil {
+			log.Printf("warning: invalid created_at for comment %s: %v", c.ID, parseErr)
+		}
 		comments = append(comments, c)
 	}
 	return comments, rows.Err()

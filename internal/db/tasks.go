@@ -4,18 +4,55 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"log"
 	"time"
 
 	"github.com/google/uuid"
 )
 
+// scanner is satisfied by both *sql.Row and *sql.Rows.
+type scanner interface {
+	Scan(dest ...interface{}) error
+}
+
+func scanTask(s scanner) (Task, error) {
+	var t Task
+	var createdAt, updatedAt string
+	if err := s.Scan(
+		&t.ID, &t.Title, &t.Description, &t.Status,
+		&t.Assignee, &t.BranchName, &t.PRUrl, &t.PRNumber,
+		&t.AgentName, &t.AgentStatus, &t.Position,
+		&createdAt, &updatedAt); err != nil {
+		return Task{}, err
+	}
+	var err error
+	t.CreatedAt, err = time.Parse(time.RFC3339, createdAt)
+	if err != nil {
+		log.Printf("warning: invalid created_at for task %s: %v", t.ID, err)
+	}
+	t.UpdatedAt, err = time.Parse(time.RFC3339, updatedAt)
+	if err != nil {
+		log.Printf("warning: invalid updated_at for task %s: %v", t.ID, err)
+	}
+	return t, nil
+}
+
+const taskColumns = `id, title, description, status, assignee, branch_name, pr_url, pr_number,
+		        agent_name, agent_status, position, created_at, updated_at`
+
 func (d *DB) CreateTask(ctx context.Context, title, description string) (*Task, error) {
+	tx, err := d.conn.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("beginning transaction: %w", err)
+	}
+	defer tx.Rollback()
+
 	now := time.Now().UTC()
 	id := uuid.New().String()
 
-	// Get next position for backlog column
+	// Get next position for backlog column (within transaction)
 	var maxPos sql.NullInt64
-	err := d.conn.QueryRowContext(ctx,
+	err = tx.QueryRowContext(ctx,
 		"SELECT MAX(position) FROM tasks WHERE status = ?", StatusBacklog).Scan(&maxPos)
 	if err != nil {
 		return nil, fmt.Errorf("getting max position: %w", err)
@@ -36,7 +73,7 @@ func (d *DB) CreateTask(ctx context.Context, title, description string) (*Task, 
 		UpdatedAt:   now,
 	}
 
-	_, err = d.conn.ExecContext(ctx,
+	_, err = tx.ExecContext(ctx,
 		`INSERT INTO tasks (id, title, description, status, assignee, branch_name, pr_url, pr_number, agent_name, agent_status, position, created_at, updated_at)
 		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		task.ID, task.Title, task.Description, task.Status,
@@ -47,51 +84,36 @@ func (d *DB) CreateTask(ctx context.Context, title, description string) (*Task, 
 		return nil, fmt.Errorf("inserting task: %w", err)
 	}
 
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("committing task: %w", err)
+	}
 	return task, nil
 }
 
 func (d *DB) GetTask(ctx context.Context, id string) (*Task, error) {
-	task := &Task{}
-	var createdAt, updatedAt string
-	err := d.conn.QueryRowContext(ctx,
-		`SELECT id, title, description, status, assignee, branch_name, pr_url, pr_number,
-		        agent_name, agent_status, position, created_at, updated_at
-		 FROM tasks WHERE id = ?`, id).Scan(
-		&task.ID, &task.Title, &task.Description, &task.Status,
-		&task.Assignee, &task.BranchName, &task.PRUrl, &task.PRNumber,
-		&task.AgentName, &task.AgentStatus, &task.Position,
-		&createdAt, &updatedAt)
+	row := d.conn.QueryRowContext(ctx,
+		`SELECT `+taskColumns+` FROM tasks WHERE id = ?`, id)
+	t, err := scanTask(row)
 	if err != nil {
 		return nil, fmt.Errorf("getting task: %w", err)
 	}
-	task.CreatedAt, _ = time.Parse(time.RFC3339, createdAt)
-	task.UpdatedAt, _ = time.Parse(time.RFC3339, updatedAt)
-	return task, nil
+	return &t, nil
 }
 
 func (d *DB) ListTasks(ctx context.Context) ([]Task, error) {
 	rows, err := d.conn.QueryContext(ctx,
-		`SELECT id, title, description, status, assignee, branch_name, pr_url, pr_number,
-		        agent_name, agent_status, position, created_at, updated_at
-		 FROM tasks ORDER BY status, position`)
+		`SELECT `+taskColumns+` FROM tasks ORDER BY status, position`)
 	if err != nil {
 		return nil, fmt.Errorf("listing tasks: %w", err)
 	}
 	defer rows.Close()
 
-	var tasks []Task
+	tasks := make([]Task, 0, 64)
 	for rows.Next() {
-		var t Task
-		var createdAt, updatedAt string
-		if err := rows.Scan(
-			&t.ID, &t.Title, &t.Description, &t.Status,
-			&t.Assignee, &t.BranchName, &t.PRUrl, &t.PRNumber,
-			&t.AgentName, &t.AgentStatus, &t.Position,
-			&createdAt, &updatedAt); err != nil {
+		t, err := scanTask(rows)
+		if err != nil {
 			return nil, fmt.Errorf("scanning task: %w", err)
 		}
-		t.CreatedAt, _ = time.Parse(time.RFC3339, createdAt)
-		t.UpdatedAt, _ = time.Parse(time.RFC3339, updatedAt)
 		tasks = append(tasks, t)
 	}
 	return tasks, rows.Err()
@@ -99,27 +121,18 @@ func (d *DB) ListTasks(ctx context.Context) ([]Task, error) {
 
 func (d *DB) ListTasksByStatus(ctx context.Context, status TaskStatus) ([]Task, error) {
 	rows, err := d.conn.QueryContext(ctx,
-		`SELECT id, title, description, status, assignee, branch_name, pr_url, pr_number,
-		        agent_name, agent_status, position, created_at, updated_at
-		 FROM tasks WHERE status = ? ORDER BY position`, status)
+		`SELECT `+taskColumns+` FROM tasks WHERE status = ? ORDER BY position`, status)
 	if err != nil {
 		return nil, fmt.Errorf("listing tasks by status: %w", err)
 	}
 	defer rows.Close()
 
-	var tasks []Task
+	tasks := make([]Task, 0, 64)
 	for rows.Next() {
-		var t Task
-		var createdAt, updatedAt string
-		if err := rows.Scan(
-			&t.ID, &t.Title, &t.Description, &t.Status,
-			&t.Assignee, &t.BranchName, &t.PRUrl, &t.PRNumber,
-			&t.AgentName, &t.AgentStatus, &t.Position,
-			&createdAt, &updatedAt); err != nil {
+		t, err := scanTask(rows)
+		if err != nil {
 			return nil, fmt.Errorf("scanning task: %w", err)
 		}
-		t.CreatedAt, _ = time.Parse(time.RFC3339, createdAt)
-		t.UpdatedAt, _ = time.Parse(time.RFC3339, updatedAt)
 		tasks = append(tasks, t)
 	}
 	return tasks, rows.Err()

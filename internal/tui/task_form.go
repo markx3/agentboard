@@ -6,7 +6,6 @@ import (
 	"github.com/charmbracelet/bubbles/textarea"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
 )
 
 type taskForm struct {
@@ -75,7 +74,7 @@ func (f taskForm) Update(msg tea.Msg) (taskForm, tea.Cmd) {
 }
 
 func (f taskForm) View() string {
-	title := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#e6b450")).Render("New Task")
+	title := formTitleStyle.Render("New Task")
 
 	focusHint := "Title"
 	if !f.focusTitle {
@@ -93,7 +92,7 @@ func (f taskForm) View() string {
 		"Description:",
 		f.descInput.View(),
 		"",
-		lipgloss.NewStyle().Foreground(lipgloss.Color("#666666")).Render("Editing: " + focusHint),
+		editingHintStyle.Render("Editing: " + focusHint),
 		help,
 	}, "\n")
 

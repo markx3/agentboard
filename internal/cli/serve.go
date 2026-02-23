@@ -7,6 +7,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"syscall"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -52,16 +53,33 @@ func runServe(cmd *cobra.Command, args []string) error {
 
 	fmt.Fprintf(os.Stderr, "Starting agentboard server on %s:%d...\n", serveHost, servePort)
 
-	if err := srv.Start(ctx); err != nil {
-		return err
+	// Start server in a goroutine since srv.Start blocks
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- srv.Start(ctx)
+	}()
+
+	// Wait for the server to be ready (address assigned)
+	var addr string
+	for i := 0; i < 50; i++ {
+		addr = srv.Addr()
+		if addr != "" {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if addr == "" {
+		return fmt.Errorf("server did not become ready in time")
 	}
 
 	// Write server info for peer discovery
-	if err := peersync.WriteServerInfo(srv.Addr()); err != nil {
+	if err := peersync.WriteServerInfo(addr); err != nil {
 		fmt.Fprintf(os.Stderr, "Warning: could not write server info: %v\n", err)
 	}
 
-	fmt.Fprintf(os.Stderr, "Server running at %s\n", srv.Addr())
+	fmt.Fprintf(os.Stderr, "Server running at %s\n", addr)
 	<-ctx.Done()
-	return nil
+
+	// Return any error from the server
+	return <-errCh
 }

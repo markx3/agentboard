@@ -5,7 +5,6 @@ import (
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
 	"github.com/marcosfelipeeipper/agentboard/internal/db"
 )
 
@@ -31,7 +30,7 @@ func (d taskDetail) Update(msg tea.Msg) (taskDetail, tea.Cmd) {
 func (d taskDetail) View() string {
 	t := d.task
 
-	title := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#e6b450")).Render(t.Title)
+	title := detailTitleStyle.Render(t.Title)
 
 	var lines []string
 	lines = append(lines, title, "")

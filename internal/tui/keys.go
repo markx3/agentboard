@@ -12,7 +12,6 @@ type keyMap struct {
 	New       key.Binding
 	Enter     key.Binding
 	Delete    key.Binding
-	Search    key.Binding
 	Help      key.Binding
 	Quit      key.Binding
 	Escape    key.Binding
@@ -54,10 +53,6 @@ var keys = keyMap{
 	Delete: key.NewBinding(
 		key.WithKeys("x"),
 		key.WithHelp("x", "delete task"),
-	),
-	Search: key.NewBinding(
-		key.WithKeys("/"),
-		key.WithHelp("/", "search"),
 	),
 	Help: key.NewBinding(
 		key.WithKeys("?"),

@@ -18,14 +18,6 @@ var (
 			Foreground(lipgloss.Color("#e6b450")).
 			Align(lipgloss.Center)
 
-	taskStyle = lipgloss.NewStyle().
-			Padding(0, 1)
-
-	selectedTaskStyle = lipgloss.NewStyle().
-				Padding(0, 1).
-				Background(lipgloss.Color("#3a3a5a")).
-				Foreground(lipgloss.Color("#ffffff"))
-
 	statusBarStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#888888")).
 			Padding(0, 1)
@@ -50,4 +42,19 @@ var (
 
 	helpStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#666666"))
+
+	countStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#888888")).
+			Align(lipgloss.Center)
+
+	formTitleStyle = lipgloss.NewStyle().
+			Bold(true).
+			Foreground(lipgloss.Color("#e6b450"))
+
+	detailTitleStyle = lipgloss.NewStyle().
+				Bold(true).
+				Foreground(lipgloss.Color("#e6b450"))
+
+	editingHintStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("#666666"))
 )

@@ -13,19 +13,14 @@ type Message struct {
 // Message types
 const (
 	MsgSyncFull    = "sync.full"
-	MsgSyncAck     = "sync.ack"
 	MsgSyncReject  = "sync.reject"
 	MsgTaskCreate  = "task.create"
-	MsgTaskUpdate  = "task.update"
 	MsgTaskMove    = "task.move"
 	MsgTaskDelete  = "task.delete"
 	MsgTaskClaim   = "task.claim"
 	MsgTaskUnclaim = "task.unclaim"
-	MsgAgentStatus = "task.agent_status"
-	MsgCommentAdd  = "comment.add"
 	MsgPeerJoin    = "peer.join"
 	MsgPeerLeave   = "peer.leave"
-	MsgLeaderPromote = "leader.promote"
 	MsgPing        = "ping"
 	MsgPong        = "pong"
 )
@@ -54,17 +49,6 @@ type TaskClaimPayload struct {
 
 type TaskUnclaimPayload struct {
 	TaskID string `json:"task_id"`
-}
-
-type AgentStatusPayload struct {
-	TaskID string `json:"task_id"`
-	Status string `json:"status"` // idle, active, error
-}
-
-type CommentAddPayload struct {
-	TaskID string `json:"task_id"`
-	Author string `json:"author"`
-	Body   string `json:"body"`
 }
 
 type PeerPayload struct {

@@ -6,6 +6,8 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"strings"
+	"time"
 
 	"github.com/gorilla/websocket"
 	"github.com/marcosfelipeeipper/agentboard/internal/auth"
@@ -22,7 +24,11 @@ var upgrader = websocket.Upgrader{
 	ReadBufferSize:  1024,
 	WriteBufferSize: 1024,
 	CheckOrigin: func(r *http.Request) bool {
-		return true // Allow all origins for local network use
+		origin := r.Header.Get("Origin")
+		if origin == "" {
+			return true // non-browser clients
+		}
+		return strings.HasPrefix(origin, "http://127.0.0.1") || strings.HasPrefix(origin, "http://localhost")
 	},
 }
 
@@ -70,10 +76,6 @@ func (s *Server) Addr() string {
 	return s.addr
 }
 
-func (s *Server) Hub() *Hub {
-	return s.hub
-}
-
 func (s *Server) handleWS(ctx context.Context, w http.ResponseWriter, r *http.Request) {
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
@@ -85,15 +87,18 @@ func (s *Server) handleWS(ctx context.Context, w http.ResponseWriter, r *http.Re
 	var authMsg struct {
 		Token string `json:"token"`
 	}
+	conn.SetReadDeadline(time.Now().Add(5 * time.Second))
 	if err := conn.ReadJSON(&authMsg); err != nil {
 		conn.WriteJSON(map[string]string{"error": "expected auth message"})
 		conn.Close()
 		return
 	}
+	conn.SetReadDeadline(time.Time{}) // clear deadline
 
 	username, err := auth.VerifyTokenString(ctx, authMsg.Token)
 	if err != nil {
-		conn.WriteJSON(map[string]string{"error": "authentication failed: " + err.Error()})
+		log.Printf("auth failed: %v", err)
+		conn.WriteJSON(map[string]string{"error": "authentication failed"})
 		conn.Close()
 		return
 	}

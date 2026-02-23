@@ -9,28 +9,6 @@ import (
 	"strings"
 )
 
-type Identity struct {
-	Username string
-	Token    string
-}
-
-func GetIdentity(ctx context.Context) (*Identity, error) {
-	token, err := getToken(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("getting GitHub token: %w", err)
-	}
-
-	username, err := verifyToken(ctx, token)
-	if err != nil {
-		return nil, fmt.Errorf("verifying token: %w", err)
-	}
-
-	return &Identity{
-		Username: username,
-		Token:    token,
-	}, nil
-}
-
 func getToken(ctx context.Context) (string, error) {
 	cmd := exec.CommandContext(ctx, "gh", "auth", "token")
 	out, err := cmd.Output()

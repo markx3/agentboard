@@ -5,7 +5,6 @@ import (
 
 	"github.com/charmbracelet/bubbles/list"
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
 	"github.com/marcosfelipeeipper/agentboard/internal/db"
 )
 
@@ -70,10 +69,7 @@ func (c column) Update(msg tea.Msg) (column, tea.Cmd) {
 func (c column) View() string {
 	header := headerStyle.Width(c.width - 4).Render(c.title)
 
-	count := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#888888")).
-		Align(lipgloss.Center).
-		Width(c.width - 4).
+	count := countStyle.Width(c.width - 4).
 		Render(countLabel(len(c.list.Items())))
 
 	content := header + "\n" + count + "\n" + c.list.View()

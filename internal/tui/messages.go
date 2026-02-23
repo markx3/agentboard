@@ -31,4 +31,3 @@ type notifyMsg struct {
 	text string
 }
 
-type overlayClosedMsg struct{}

@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log"
 	"sync"
 	"time"
@@ -60,6 +61,12 @@ func (c *Client) readPump(ctx context.Context) {
 		c.conn.Close()
 	}()
 
+	// Close connection when context is cancelled to unblock ReadMessage
+	go func() {
+		<-ctx.Done()
+		c.conn.Close()
+	}()
+
 	c.conn.SetReadLimit(maxMessageSize)
 	c.conn.SetReadDeadline(time.Now().Add(pongWait))
 	c.conn.SetPongHandler(func(string) error {
@@ -68,12 +75,6 @@ func (c *Client) readPump(ctx context.Context) {
 	})
 
 	for {
-		select {
-		case <-ctx.Done():
-			return
-		default:
-		}
-
 		_, message, err := c.conn.ReadMessage()
 		if err != nil {
 			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseNormalClosure) {
@@ -131,6 +132,9 @@ func (c *Client) writePump(ctx context.Context) {
 }
 
 func mustMarshal(v interface{}) json.RawMessage {
-	data, _ := json.Marshal(v)
+	data, err := json.Marshal(v)
+	if err != nil {
+		panic(fmt.Sprintf("mustMarshal: %v", err))
+	}
 	return data
 }
