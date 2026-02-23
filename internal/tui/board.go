@@ -117,6 +117,23 @@ func (b *kanban) FocusRight() {
 	}
 }
 
+// FocusOnStatus moves column focus to the column matching the given status.
+func (b *kanban) FocusOnStatus(status db.TaskStatus) {
+	for i, s := range columnOrder {
+		if s == status {
+			b.columns[b.focusedCol].focused = false
+			b.focusedCol = i
+			b.columns[b.focusedCol].focused = true
+			return
+		}
+	}
+}
+
+// SelectTaskByID selects a task by ID in the currently focused column.
+func (b *kanban) SelectTaskByID(taskID string) {
+	b.columns[b.focusedCol].SelectTaskByID(taskID)
+}
+
 func (b kanban) View() string {
 	colViews := make([]string, len(b.columns))
 	for i, col := range b.columns {
