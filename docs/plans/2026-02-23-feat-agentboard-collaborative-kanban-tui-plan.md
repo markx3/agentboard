@@ -336,19 +336,19 @@ All commands support `--json` output for machine consumption. These commands con
 Build the single-player Kanban board without networking. This validates the TUI architecture and data model.
 
 **Tasks:**
-- [ ] **Project scaffolding**: `go mod init`, Cobra CLI setup, directory structure - `cmd/agentboard/main.go`, `internal/cli/root.go`
-- [ ] **SQLite layer**: Schema creation with CHECK constraints, Task CRUD with parameterized queries, WAL mode, `SetMaxOpenConns(1)`, `busy_timeout=5000` - `internal/db/sqlite.go`, `internal/db/schema.go`, `internal/db/tasks.go`, `internal/db/models.go`
-- [ ] **BoardService interface**: Domain logic layer between TUI and DB. All task operations go through this interface (enables swapping local DB for WebSocket in Phase 3) - `internal/board/service.go`, `internal/board/local.go`
-- [ ] **Config system**: Global + project TOML parsing with merge - `internal/config/global.go`, `internal/config/project.go`, `internal/config/merged.go`
-- [ ] **Bubble Tea board**: Board model with 4 columns (Backlog, Planning, In Progress, Done), vim navigation (h/j/k/l), focused column highlighting - `internal/tui/app.go`, `internal/tui/board.go`, `internal/tui/column.go`, `internal/tui/styles.go`, `internal/tui/keys.go`
-- [ ] **Task item**: Task implementing `list.Item` with status indicators - `internal/tui/task_item.go`
-- [ ] **Task creation form**: Overlay for creating new tasks (title + description) - `internal/tui/task_form.go`
-- [ ] **Task detail popup**: View task details, agent status - `internal/tui/task_detail.go`
-- [ ] **Task movement**: `m` to move right, support all column transitions - `internal/tui/board.go`
-- [ ] **Task search**: `/` for fuzzy search using bubbles/list built-in filter - `internal/tui/board.go`
-- [ ] **Notification bar**: Toast messages at bottom of screen - `internal/tui/notification.go`
-- [ ] **`agentboard init`**: Create `.agentboard/` directory and default config - `internal/cli/init.go`
-- [ ] **Context propagation**: Use `context.Context` throughout for clean shutdown - all packages
+- [x] **Project scaffolding**: `go mod init`, Cobra CLI setup, directory structure - `cmd/agentboard/main.go`, `internal/cli/root.go`
+- [x] **SQLite layer**: Schema creation with CHECK constraints, Task CRUD with parameterized queries, WAL mode, `SetMaxOpenConns(1)`, `busy_timeout=5000` - `internal/db/sqlite.go`, `internal/db/schema.go`, `internal/db/tasks.go`, `internal/db/models.go`
+- [x] **BoardService interface**: Domain logic layer between TUI and DB. All task operations go through this interface (enables swapping local DB for WebSocket in Phase 3) - `internal/board/service.go`, `internal/board/local.go`
+- [x] **Config system**: Global + project TOML parsing with merge - `internal/config/global.go`, `internal/config/project.go`, `internal/config/merged.go`
+- [x] **Bubble Tea board**: Board model with 4 columns (Backlog, Planning, In Progress, Done), vim navigation (h/j/k/l), focused column highlighting - `internal/tui/app.go`, `internal/tui/board.go`, `internal/tui/column.go`, `internal/tui/styles.go`, `internal/tui/keys.go`
+- [x]**Task item**: Task implementing `list.Item` with status indicators - `internal/tui/task_item.go`
+- [x]**Task creation form**: Overlay for creating new tasks (title + description) - `internal/tui/task_form.go`
+- [x]**Task detail popup**: View task details, agent status - `internal/tui/task_detail.go`
+- [x]**Task movement**: `m` to move right, support all column transitions - `internal/tui/board.go`
+- [x]**Task search**: `/` for fuzzy search using bubbles/list built-in filter - `internal/tui/board.go`
+- [x]**Notification bar**: Toast messages at bottom of screen - `internal/tui/notification.go`
+- [x]**`agentboard init`**: Create `.agentboard/` directory and default config - `internal/cli/init.go`
+- [x]**Context propagation**: Use `context.Context` throughout for clean shutdown - all packages
 
 **Success criteria:** User can create, view, move, and delete tasks across 4 columns. Data persists in SQLite across restarts. All task operations go through BoardService interface.
 
@@ -357,15 +357,15 @@ Build the single-player Kanban board without networking. This validates the TUI 
 Add local agent session management. Still single-player.
 
 **Tasks:**
-- [ ] **Agent registry**: Define supported agents, detect via `exec.LookPath` - `internal/agent/registry.go`
-- [ ] **tmux manager**: Create/kill windows, capture pane, send keys - `internal/tmux/manager.go`, `internal/tmux/capture.go`
-- [ ] **Worktree manager**: Create/remove worktrees, copy files, run init scripts - `internal/worktree/manager.go`, `internal/worktree/setup.go`
-- [ ] **Claim flow**: Moving Backlog→Planning creates worktree + launches agent in tmux - `internal/tui/board.go` (wire to worktree + tmux)
-- [ ] **Shell popup**: Live tmux pane viewer via viewport (press `s` on active task) - `internal/tui/shell_popup.go`
-- [ ] **Agent status**: Track idle/active/error state, show indicator on task card - `internal/tui/task_item.go`
-- [ ] **Done cleanup**: Remove worktree and kill tmux window on Done transition - `internal/worktree/manager.go`
-- [ ] **Unclaim with safety**: Warn on uncommitted changes before worktree removal - `internal/worktree/manager.go`
-- [ ] **GitHub auth**: Extract token via `gh auth token`, verify via API - `internal/auth/github.go`
+- [x]**Agent registry**: Define supported agents, detect via `exec.LookPath` - `internal/agent/registry.go`
+- [x]**tmux manager**: Create/kill windows, capture pane, send keys - `internal/tmux/manager.go`, `internal/tmux/capture.go`
+- [x]**Worktree manager**: Create/remove worktrees, copy files, run init scripts - `internal/worktree/manager.go`, `internal/worktree/setup.go`
+- [x]**Claim flow**: Moving Backlog→Planning creates worktree + launches agent in tmux - `internal/tui/board.go` (wire to worktree + tmux)
+- [x]**Shell popup**: Live tmux pane viewer via viewport (press `s` on active task) - `internal/tui/shell_popup.go`
+- [x]**Agent status**: Track idle/active/error state, show indicator on task card - `internal/tui/task_item.go`
+- [x]**Done cleanup**: Remove worktree and kill tmux window on Done transition - `internal/worktree/manager.go`
+- [x]**Unclaim with safety**: Warn on uncommitted changes before worktree removal - `internal/worktree/manager.go`
+- [x]**GitHub auth**: Extract token via `gh auth token`, verify via API - `internal/auth/github.go`
 
 **Success criteria:** User can claim a task, see the agent running in a tmux popup, track agent status, and complete the full lifecycle.
 
@@ -374,20 +374,20 @@ Add local agent session management. Still single-player.
 Add multiplayer. This is the core differentiator over agtx.
 
 **Tasks:**
-- [ ] **WebSocket server**: Hub pattern with register/unregister/broadcast channels, bind to 127.0.0.1 by default - `internal/server/server.go`, `internal/server/hub.go`, `internal/server/client.go`
-- [ ] **Wire protocol**: JSON message types, envelope with type/seq/sender/payload, max 64KB per message - `internal/server/protocol.go`
-- [ ] **Server-side sequencer**: Monotonic sequence numbers, first-write-wins - `internal/server/sequencer.go`
-- [ ] **WebSocket client**: Connect, authenticate, receive updates via buffered channel - `internal/peersync/connector.go`
-- [ ] **Peer discovery**: Write/read `.agentboard/server.json` with file locking - `internal/peersync/discovery.go`
-- [ ] **Bubble Tea integration**: Channel+Cmd relay pattern for WS messages into TUI - `internal/tui/app.go`
-- [ ] **Full state sync**: Send complete board state to newly connected peers - `internal/server/hub.go`
-- [ ] **Heartbeat**: 30s ping/pong, 30s timeout for disconnect detection - `internal/server/client.go`
-- [ ] **Rate limiting**: Max 60 messages/minute per connection - `internal/server/client.go`
-- [ ] **Connection status bar**: Show peer count, role (server/client), connection state - `internal/tui/app.go`
-- [ ] **`agentboard serve`**: Persistent server mode (no TUI, background daemon) - `internal/cli/serve.go`
-- [ ] **`agentboard peers`**: List connected peers via WS API call - `internal/cli/peers.go`
-- [ ] **`--connect` flag**: Manual server address - `internal/cli/root.go`
-- [ ] **Authentication on connect**: Token verification during WS handshake - `internal/server/server.go`, `internal/auth/github.go`
+- [x]**WebSocket server**: Hub pattern with register/unregister/broadcast channels, bind to 127.0.0.1 by default - `internal/server/server.go`, `internal/server/hub.go`, `internal/server/client.go`
+- [x]**Wire protocol**: JSON message types, envelope with type/seq/sender/payload, max 64KB per message - `internal/server/protocol.go`
+- [x]**Server-side sequencer**: Monotonic sequence numbers, first-write-wins - `internal/server/sequencer.go`
+- [x]**WebSocket client**: Connect, authenticate, receive updates via buffered channel - `internal/peersync/connector.go`
+- [x]**Peer discovery**: Write/read `.agentboard/server.json` with file locking - `internal/peersync/discovery.go`
+- [x]**Bubble Tea integration**: Channel+Cmd relay pattern for WS messages into TUI - `internal/tui/app.go`
+- [x]**Full state sync**: Send complete board state to newly connected peers - `internal/server/hub.go`
+- [x]**Heartbeat**: 30s ping/pong, 30s timeout for disconnect detection - `internal/server/client.go`
+- [x]**Rate limiting**: Max 60 messages/minute per connection - `internal/server/client.go`
+- [x]**Connection status bar**: Show peer count, role (server/client), connection state - `internal/tui/app.go`
+- [x]**`agentboard serve`**: Persistent server mode (no TUI, background daemon) - `internal/cli/serve.go`
+- [x]**`agentboard peers`**: List connected peers via WS API call - `internal/cli/peers.go`
+- [x]**`--connect` flag**: Manual server address - `internal/cli/root.go`
+- [x]**Authentication on connect**: Token verification during WS handshake - `internal/server/server.go`, `internal/auth/github.go`
 
 **Success criteria:** Two developers on the same repo see each other's changes in real-time. Task moves by one appear instantly on the other's board.
 
@@ -396,28 +396,28 @@ Add multiplayer. This is the core differentiator over agtx.
 Make it production-ready for teams.
 
 **Tasks:**
-- [ ] **Leader election**: Longest-connected peer promotes on leader disconnect - `internal/peersync/leader.go`
-- [ ] **State transfer**: Compressed JSON state → new leader via `sync.full` - `internal/peersync/leader.go`
-- [ ] **Epoch numbers**: Prevent split-brain with monotonic epoch validation - `internal/server/sequencer.go`, `internal/db/sqlite.go`
-- [ ] **Graceful shutdown**: Leader sends `leader.promote` before exit - `internal/server/server.go`
-- [ ] **Offline mode**: Queue local changes with idempotency keys, epoch-aware replay on reconnect - `internal/peersync/offline.go`
-- [ ] **Reconnection**: Exponential backoff with jitter, auto-reconnect on server change - `internal/peersync/connector.go`
-- [ ] **Conflict resolution UX**: Toast notifications for rejected actions ("Task already claimed by @bob") - `internal/tui/notification.go`
+- [x]**Leader election**: Longest-connected peer promotes on leader disconnect - `internal/peersync/leader.go`
+- [x]**State transfer**: Compressed JSON state → new leader via `sync.full` - `internal/peersync/leader.go`
+- [x]**Epoch numbers**: Prevent split-brain with monotonic epoch validation - `internal/server/sequencer.go`, `internal/db/sqlite.go`
+- [x]**Graceful shutdown**: Leader sends `leader.promote` before exit - `internal/server/server.go`
+- [x]**Offline mode**: Queue local changes with idempotency keys, epoch-aware replay on reconnect - `internal/peersync/offline.go`
+- [x]**Reconnection**: Exponential backoff with jitter, auto-reconnect on server change - `internal/peersync/connector.go`
+- [x]**Conflict resolution UX**: Toast notifications for rejected actions ("Task already claimed by @bob") - `internal/tui/notification.go`
 
 **Success criteria:** Leader can disconnect and another peer seamlessly takes over. Offline changes sync correctly on reconnect.
 
 ### Phase 5: Polish (Agent CLI + UX + Extended Features)
 
 **Tasks:**
-- [ ] **Agent-native CLI subcommands**: `agentboard task {list,create,move,claim,unclaim,get,delete}` with `--json` output - `internal/cli/task.go`
-- [ ] **`agentboard status --json`**: Board summary for agent consumption - `internal/cli/status.go`
-- [ ] **"My Tasks" filter**: Toggle between all tasks and current user's tasks - `internal/tui/board.go`
-- [ ] **Task comments**: Add/view comments on cards with author + timestamp - `internal/tui/task_detail.go`, `internal/db/comments.go`
-- [ ] **Diff popup**: Show `git diff` for task's worktree - `internal/tui/board.go`
-- [ ] **Terminal resize handling**: Respond to `tea.WindowSizeMsg`, recalculate column widths - `internal/tui/board.go`
-- [ ] **Help overlay**: `?` to show key bindings - `internal/tui/app.go`
-- [ ] **Review column**: Optional 5th column, launch local agent against PR/branch - `internal/tui/board.go`
-- [ ] **Homebrew formula**: Package for `brew install agentboard` - `Formula/agentboard.rb`
+- [x]**Agent-native CLI subcommands**: `agentboard task {list,create,move,claim,unclaim,get,delete}` with `--json` output - `internal/cli/task.go`
+- [x]**`agentboard status --json`**: Board summary for agent consumption - `internal/cli/status.go`
+- [x]**"My Tasks" filter**: Toggle between all tasks and current user's tasks - `internal/tui/board.go`
+- [x]**Task comments**: Add/view comments on cards with author + timestamp - `internal/tui/task_detail.go`, `internal/db/comments.go`
+- [x]**Diff popup**: Show `git diff` for task's worktree - `internal/tui/board.go`
+- [x]**Terminal resize handling**: Respond to `tea.WindowSizeMsg`, recalculate column widths - `internal/tui/board.go`
+- [x]**Help overlay**: `?` to show key bindings - `internal/tui/app.go`
+- [x]**Review column**: Optional 5th column, launch local agent against PR/branch - `internal/tui/board.go`
+- [x]**Homebrew formula**: Package for `brew install agentboard` - `Formula/agentboard.rb`
 
 **Deferred to post-MVP:**
 - Compound column (optional 6th column)
