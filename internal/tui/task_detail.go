@@ -54,6 +54,9 @@ func (d taskDetail) View() string {
 			agentStr = agentErrorStyle.Render(agentStr)
 		}
 		lines = append(lines, agentStr)
+		if t.SkipPermissions && t.AgentStatus == db.AgentActive {
+			lines = append(lines, agentActiveStyle.Render("Perms:   skipped"))
+		}
 	}
 
 	if t.BranchName != "" {
