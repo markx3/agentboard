@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/marcosfelipeeipper/agentboard/internal/agent"
 	"github.com/marcosfelipeeipper/agentboard/internal/db"
 )
 
@@ -46,7 +47,11 @@ func (d taskDetail) View() string {
 	}
 
 	if t.AgentName != "" {
-		agentStr := fmt.Sprintf("Agent:   %s (%s)", t.AgentName, t.AgentStatus)
+		displayName := t.AgentName
+		if r := agent.GetRunner(t.AgentName); r != nil {
+			displayName = r.Name()
+		}
+		agentStr := fmt.Sprintf("Agent:   %s (%s)", displayName, t.AgentStatus)
 		switch t.AgentStatus {
 		case db.AgentActive:
 			agentStr = agentActiveStyle.Render(agentStr)

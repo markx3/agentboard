@@ -1,10 +1,9 @@
-// Package agent orchestrates Claude Code agent lifecycle via tmux.
+// Package agent orchestrates AI agent lifecycle via tmux.
 package agent
 
 import (
 	"context"
 	"fmt"
-	"os/exec"
 	"regexp"
 	"strings"
 	"unicode/utf8"
@@ -38,15 +37,9 @@ func WindowName(task db.Task) string {
 	return "agent-" + task.ID[:8]
 }
 
-// Spawn launches a Claude Code agent in a tmux window for the given task.
-// It checks that `claude` is in PATH, ensures the tmux session exists,
-// launches the agent, and updates the task status to active.
-func Spawn(ctx context.Context, svc board.Service, task db.Task) error {
-	// Check claude is available
-	if _, err := exec.LookPath("claude"); err != nil {
-		return fmt.Errorf("claude CLI not found in PATH")
-	}
-
+// Spawn launches an AI agent in a tmux window for the given task.
+// The runner determines which CLI is used and how the command is built.
+func Spawn(ctx context.Context, svc board.Service, task db.Task, runner AgentRunner) error {
 	// Ensure tmux session
 	if err := tmux.EnsureSession(); err != nil {
 		return fmt.Errorf("tmux: %w", err)
@@ -54,30 +47,30 @@ func Spawn(ctx context.Context, svc board.Service, task db.Task) error {
 
 	slug := TaskSlug(task.Title)
 	winName := WindowName(task)
-	sysPrompt := buildSystemPrompt(task)
-	initialPrompt := buildInitialPrompt(task)
+
+	opts := SpawnOpts{
+		WorkDir: slug,
+		Task:    task,
+	}
 
 	// Kill any existing window for this task (handles respawn case)
 	_ = tmux.KillWindow(winName)
 
-	// Build the claude command with both system context and an initial user message
-	skipFlag := ""
-	if task.SkipPermissions {
-		skipFlag = "--dangerously-skip-permissions "
-	}
-	cmd := fmt.Sprintf("claude %s-w %s --append-system-prompt %s %s",
-		skipFlag,
-		shellQuote(slug),
-		shellQuote(sysPrompt),
-		shellQuote(initialPrompt),
-	)
+	cmd := runner.BuildCommand(opts)
 
-	if err := tmux.NewWindow(winName, "", cmd); err != nil {
+	// For Claude, working dir is passed as -w flag in the command itself.
+	// For other agents, set CWD via tmux's -c flag so the process inherits it.
+	windowDir := ""
+	if runner.ID() != "claude" {
+		windowDir = slug
+	}
+
+	if err := tmux.NewWindow(winName, windowDir, cmd); err != nil {
 		return fmt.Errorf("creating tmux window: %w", err)
 	}
 
 	// Update task in DB
-	task.AgentName = "claude"
+	task.AgentName = runner.ID()
 	task.AgentStatus = db.AgentActive
 	if err := svc.UpdateTask(ctx, &task); err != nil {
 		// Best-effort kill the window if DB update fails
@@ -89,6 +82,7 @@ func Spawn(ctx context.Context, svc board.Service, task db.Task) error {
 }
 
 // Kill terminates a running agent by killing its tmux window and updating the task.
+// AgentName is preserved so the task remembers which agent was used.
 func Kill(ctx context.Context, svc board.Service, task db.Task) error {
 	winName := WindowName(task)
 
@@ -96,63 +90,11 @@ func Kill(ctx context.Context, svc board.Service, task db.Task) error {
 	_ = tmux.KillWindow(winName)
 
 	task.AgentStatus = db.AgentIdle
-	task.AgentName = ""
 	if err := svc.UpdateTask(ctx, &task); err != nil {
 		return fmt.Errorf("updating task: %w", err)
 	}
 
 	return nil
-}
-
-func buildSystemPrompt(task db.Task) string {
-	shortID := task.ID[:8]
-
-	var b strings.Builder
-	b.WriteString("You are working on an agentboard task.\n")
-	fmt.Fprintf(&b, "Task: %s  |  ID: %s\n", task.Title, shortID)
-	if task.Description != "" {
-		fmt.Fprintf(&b, "Description: %s\n", task.Description)
-	}
-	b.WriteString("\n")
-
-	switch task.Status {
-	case db.StatusBacklog:
-		b.WriteString("STAGE: Backlog — Project Ideation\n")
-		b.WriteString("When brainstorming is complete, move to planning:\n")
-		fmt.Fprintf(&b, "  agentboard task move %s planning\n", shortID)
-	case db.StatusPlanning:
-		b.WriteString("STAGE: Planning — Implementation Design\n")
-		b.WriteString("When the plan is ready, move to in progress:\n")
-		fmt.Fprintf(&b, "  agentboard task move %s in_progress\n", shortID)
-	case db.StatusInProgress:
-		b.WriteString("STAGE: In Progress — Implementation\n")
-		b.WriteString("When implementation is complete and a PR is opened, move to done:\n")
-		fmt.Fprintf(&b, "  agentboard task move %s done\n", shortID)
-	case db.StatusDone:
-		b.WriteString("STAGE: Done — Verification & Cleanup\n")
-		b.WriteString("Verify that the pull request has been opened and merged to main.\n")
-		b.WriteString("Then clean up the git worktree for this task.\n")
-	default:
-		b.WriteString("When you are done, move the task to the next column using the agentboard CLI:\n")
-		fmt.Fprintf(&b, "  agentboard task move %s <status>\n", shortID)
-	}
-
-	return b.String()
-}
-
-func buildInitialPrompt(task db.Task) string {
-	switch task.Status {
-	case db.StatusBacklog:
-		return "Run /workflows:brainstorm to explore ideas for this task."
-	case db.StatusPlanning:
-		return "Run /workflows:plan to create a detailed implementation plan for this task."
-	case db.StatusInProgress:
-		return "Run /workflows:work to implement this task based on the plan."
-	case db.StatusDone:
-		return "Verify the pull request is merged and clean up the git worktree."
-	default:
-		return "Begin working on this task."
-	}
 }
 
 func shellQuote(s string) string {

@@ -47,11 +47,21 @@ func (b *kanban) SetSize(w, h int) {
 	b.width = w
 	b.height = h
 
-	colWidth := w / len(b.columns)
+	numCols := len(b.columns)
+	// Each column's border adds 2 chars (left + right) outside lipgloss Width.
+	// Subtract border space before dividing to prevent rightmost column overflow.
+	borderW := 2
+	availW := w - borderW*numCols
+	colWidth := availW / numCols
 	colHeight := h - 4
 
 	for i := range b.columns {
-		b.columns[i].SetSize(colWidth, colHeight)
+		cw := colWidth
+		if i == numCols-1 {
+			// Give remainder pixels to the last column to fill the terminal width.
+			cw = availW - colWidth*(numCols-1)
+		}
+		b.columns[i].SetSize(cw, colHeight)
 	}
 }
 

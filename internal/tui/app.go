@@ -27,6 +27,7 @@ const (
 	overlayDetail
 	overlayHelp
 	overlayConfirm
+	overlayPicker
 )
 
 // pendingRecon tracks a task whose agent window just died.
@@ -41,12 +42,15 @@ type App struct {
 	overlay      overlayType
 	form         taskForm
 	detail       taskDetail
+	picker       agentPicker
 	notification *notification
 	width        int
 	height       int
 	ready        bool
 	// pendingSpawnTask holds a task awaiting skip-permissions confirmation.
 	pendingSpawnTask *db.Task
+	// availableRunners is cached at startup for agent detection.
+	availableRunners []agent.AgentRunner
 	// pendingRecons tracks tasks in the grace period after their agent window dies.
 	pendingRecons map[string]pendingRecon
 	// lastTasks caches the latest task list for reconciliation.
@@ -55,10 +59,11 @@ type App struct {
 
 func NewApp(svc board.Service) App {
 	return App{
-		board:         newKanban(),
-		service:       svc,
-		form:          newTaskForm(),
-		pendingRecons: make(map[string]pendingRecon),
+		board:            newKanban(),
+		service:          svc,
+		form:             newTaskForm(),
+		availableRunners: agent.AvailableRunners(),
+		pendingRecons:    make(map[string]pendingRecon),
 	}
 }
 
@@ -142,6 +147,15 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			expires: time.Now().Add(3 * time.Second),
 		}
 		return a, scheduleNotificationClear(3 * time.Second)
+
+	case spawnAfterConfirmMsg:
+		// After skip-permissions confirmation, enter agent selection flow
+		cmd := a.spawnAgent(msg.task)
+		return a, cmd
+
+	case agentSelectedMsg:
+		a.overlay = overlayNone
+		return a, a.spawnAgentWithRunner(msg.task, msg.runner)
 
 	case agentSpawnedMsg:
 		return a, tea.Batch(
@@ -285,6 +299,8 @@ func (a App) updateOverlay(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a.updateForm(msg)
 	case overlayDetail:
 		return a.updateDetail(msg)
+	case overlayPicker:
+		return a.updatePicker(msg)
 	case overlayHelp:
 		if _, ok := msg.(tea.KeyMsg); ok {
 			a.overlay = overlayNone
@@ -323,17 +339,21 @@ func (a App) updateConfirm(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return a, nil
 }
 
-func (a App) persistAndSpawn(task db.Task) tea.Cmd {
+// persistAndSpawn saves the task's SkipPermissions then triggers the agent selection flow.
+func (a *App) persistAndSpawn(task db.Task) tea.Cmd {
 	return func() tea.Msg {
 		ctx := context.Background()
 		if err := a.service.UpdateTask(ctx, &task); err != nil {
 			return errMsg{fmt.Errorf("saving skip_permissions: %w", err)}
 		}
-		if err := agent.Spawn(ctx, a.service, task); err != nil {
-			return errMsg{fmt.Errorf("%s", err)}
-		}
-		return agentSpawnedMsg{taskID: task.ID}
+		return spawnAfterConfirmMsg{task: task}
 	}
+}
+
+func (a App) updatePicker(msg tea.Msg) (tea.Model, tea.Cmd) {
+	var cmd tea.Cmd
+	a.picker, cmd = a.picker.Update(msg)
+	return a, cmd
 }
 
 func (a App) updateForm(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -488,7 +508,7 @@ func (a App) View() string {
 		statusBar = notificationStyle.Render(a.notification.text)
 	}
 
-	help := helpStyle.Render(" h/l:columns  j/k:tasks  o:new  m/M:move  a:agent  v:view  A:kill  enter:open/view  x:delete  ?:help  q:quit")
+	help := helpStyle.Render(" h/l:columns  j/k:tasks  o:new  m/M:move  a:spawn agent  v:view  A:kill  enter:open/view  x:delete  ?:help  q:quit")
 
 	mainView := lipgloss.JoinVertical(lipgloss.Left, boardView, statusBar, help)
 
@@ -498,6 +518,8 @@ func (a App) View() string {
 		return a.renderOverlay(mainView, a.form.View())
 	case overlayDetail:
 		return a.renderOverlay(mainView, a.detail.View())
+	case overlayPicker:
+		return a.renderOverlay(mainView, a.picker.View())
 	case overlayHelp:
 		return a.renderOverlay(mainView, a.helpView())
 	case overlayConfirm:
@@ -532,7 +554,7 @@ Actions:
   M         Move task left
   enter     Open task (view agent if active)
   x         Delete task
-  a         Spawn agent on task
+  a         Spawn agent (select if multiple available)
   v         View agent (split pane, Ctrl+q to close)
   A         Kill running agent
 
@@ -649,9 +671,26 @@ func (a App) prevStatus(current db.TaskStatus) db.TaskStatus {
 
 // Agent command helpers
 
-func (a App) spawnAgent(task db.Task) tea.Cmd {
+// spawnAgent initiates agent spawning. If multiple agents are available, it shows the picker.
+// If only one is available, it spawns directly. If none, it shows an error.
+func (a *App) spawnAgent(task db.Task) tea.Cmd {
+	runners := a.availableRunners
+	switch len(runners) {
+	case 0:
+		return a.notify("No agent CLIs detected in PATH")
+	case 1:
+		return a.spawnAgentWithRunner(task, runners[0])
+	default:
+		a.picker = newAgentPicker(runners, task, a.width, a.height)
+		a.overlay = overlayPicker
+		return nil
+	}
+}
+
+// spawnAgentWithRunner spawns a specific agent runner on a task.
+func (a App) spawnAgentWithRunner(task db.Task, runner agent.AgentRunner) tea.Cmd {
 	return func() tea.Msg {
-		if err := agent.Spawn(context.Background(), a.service, task); err != nil {
+		if err := agent.Spawn(context.Background(), a.service, task, runner); err != nil {
 			return errMsg{fmt.Errorf("%s", err)}
 		}
 		return agentSpawnedMsg{taskID: task.ID}
@@ -678,21 +717,29 @@ func (a App) viewAgent(task db.Task) tea.Cmd {
 
 func (a App) respawnAgent(taskID string, newStatus db.TaskStatus) tea.Cmd {
 	return func() tea.Msg {
+		ctx := context.Background()
 		// Fetch the updated task from DB
-		tasks, err := a.service.ListTasks(context.Background())
+		task, err := a.service.GetTask(ctx, taskID)
 		if err != nil {
 			return errMsg{err}
 		}
-		for _, t := range tasks {
-			if t.ID == taskID {
-				// Spawn handles killing the old window and creating a new one
-				if err := agent.Spawn(context.Background(), a.service, t); err != nil {
-					return errMsg{fmt.Errorf("respawn agent: %w", err)}
-				}
-				return agentSpawnedMsg{taskID: taskID}
-			}
+
+		// Look up the runner the task was previously using
+		runner := agent.GetRunner(task.AgentName)
+		if runner == nil || !runner.Available() {
+			// Agent no longer available — mark as error
+			task.AgentStatus = db.AgentError
+			task.AgentStartedAt = ""
+			task.AgentSpawnedStatus = ""
+			a.service.UpdateTask(ctx, task)
+			return notifyMsg{text: fmt.Sprintf("Agent %q no longer available", task.AgentName)}
 		}
-		return nil
+
+		// Spawn handles killing the old window and creating a new one
+		if err := agent.Spawn(ctx, a.service, *task, runner); err != nil {
+			return errMsg{fmt.Errorf("respawn agent: %w", err)}
+		}
+		return agentSpawnedMsg{taskID: taskID}
 	}
 }
 
