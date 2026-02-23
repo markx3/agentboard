@@ -15,6 +15,7 @@ type taskCreatedMsg struct {
 type taskMovedMsg struct {
 	taskID    string
 	newStatus db.TaskStatus
+	hadAgent  bool
 }
 
 type taskDeletedMsg struct {
@@ -30,4 +31,22 @@ func (e errMsg) Error() string { return e.err.Error() }
 type notifyMsg struct {
 	text string
 }
+
+// Agent lifecycle messages
+
+type agentSpawnedMsg struct {
+	taskID string
+}
+
+type agentKilledMsg struct {
+	taskID string
+}
+
+type agentPollMsg struct {
+	alive map[string]bool
+}
+
+type agentPollTickMsg struct{}
+
+type agentViewDoneMsg struct{}
 
