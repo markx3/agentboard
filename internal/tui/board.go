@@ -12,6 +12,7 @@ var columnOrder = []db.TaskStatus{
 	db.StatusBacklog,
 	db.StatusPlanning,
 	db.StatusInProgress,
+	db.StatusReview,
 	db.StatusDone,
 }
 
@@ -19,6 +20,7 @@ var columnTitles = map[db.TaskStatus]string{
 	db.StatusBacklog:    "Backlog",
 	db.StatusPlanning:   "Planning",
 	db.StatusInProgress: "In Progress",
+	db.StatusReview:     "Review",
 	db.StatusDone:       "Done",
 }
 
