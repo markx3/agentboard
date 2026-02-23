@@ -52,6 +52,7 @@ func runStatus(cmd *cobra.Command, args []string) error {
 			string(db.StatusBacklog):    counts[string(db.StatusBacklog)],
 			string(db.StatusPlanning):   counts[string(db.StatusPlanning)],
 			string(db.StatusInProgress): counts[string(db.StatusInProgress)],
+			string(db.StatusReview):     counts[string(db.StatusReview)],
 			string(db.StatusDone):       counts[string(db.StatusDone)],
 		},
 		Total: len(tasks),
@@ -66,6 +67,7 @@ func runStatus(cmd *cobra.Command, args []string) error {
 	fmt.Printf("Backlog:     %d\n", summary.Columns[string(db.StatusBacklog)])
 	fmt.Printf("Planning:    %d\n", summary.Columns[string(db.StatusPlanning)])
 	fmt.Printf("In Progress: %d\n", summary.Columns[string(db.StatusInProgress)])
+	fmt.Printf("Review:      %d\n", summary.Columns[string(db.StatusReview)])
 	fmt.Printf("Done:        %d\n", summary.Columns[string(db.StatusDone)])
 	fmt.Printf("─────────────────\n")
 	fmt.Printf("Total:       %d\n", summary.Total)
