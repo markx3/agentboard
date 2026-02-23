@@ -99,16 +99,15 @@ func (c *Connector) readPump(ctx context.Context) {
 
 func (c *Connector) Send(msg server.Message) error {
 	c.mu.Lock()
-	conn := c.conn
-	c.mu.Unlock()
-	if conn == nil {
+	defer c.mu.Unlock()
+	if c.conn == nil {
 		return fmt.Errorf("not connected")
 	}
 	data, err := json.Marshal(msg)
 	if err != nil {
 		return err
 	}
-	return conn.WriteMessage(websocket.TextMessage, data)
+	return c.conn.WriteMessage(websocket.TextMessage, data)
 }
 
 func (c *Connector) Close() error {

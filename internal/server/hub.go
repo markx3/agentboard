@@ -77,14 +77,28 @@ func (h *Hub) handleMessage(ctx context.Context, cm clientMessage) {
 		if err := json.Unmarshal(msg.Payload, &p); err != nil {
 			return
 		}
+		if len(p.Title) == 0 || len(p.Title) > 500 {
+			h.sendReject(cm.client, "title must be 1-500 characters")
+			return
+		}
+		if len(p.Description) > 5000 {
+			h.sendReject(cm.client, "description must be under 5000 characters")
+			return
+		}
 		task, err := h.service.CreateTask(ctx, p.Title, p.Description)
 		if err != nil {
 			h.sendReject(cm.client, err.Error())
 			return
 		}
+		payload, err := safeMarshal(task)
+		if err != nil {
+			log.Printf("failed to marshal task: %v", err)
+			h.sendReject(cm.client, "internal error")
+			return
+		}
 		seq := h.sequencer.Next()
 		msg.Seq = seq
-		msg.Payload = mustMarshal(task)
+		msg.Payload = payload
 		h.broadcastAllRaw(msg)
 
 	case MsgTaskMove:

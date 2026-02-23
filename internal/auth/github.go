@@ -7,6 +7,20 @@ import (
 	"net/http"
 	"os/exec"
 	"strings"
+	"sync"
+	"time"
+)
+
+const tokenCacheTTL = 5 * time.Minute
+
+type cachedUser struct {
+	username  string
+	expiresAt time.Time
+}
+
+var (
+	cacheMu    sync.RWMutex
+	tokenCache = make(map[string]cachedUser)
 )
 
 func getToken(ctx context.Context) (string, error) {
@@ -19,6 +33,14 @@ func getToken(ctx context.Context) (string, error) {
 }
 
 func verifyToken(ctx context.Context, token string) (string, error) {
+	// Check cache first
+	cacheMu.RLock()
+	if entry, ok := tokenCache[token]; ok && time.Now().Before(entry.expiresAt) {
+		cacheMu.RUnlock()
+		return entry.username, nil
+	}
+	cacheMu.RUnlock()
+
 	req, err := http.NewRequestWithContext(ctx, "GET", "https://api.github.com/user", nil)
 	if err != nil {
 		return "", err
@@ -42,6 +64,14 @@ func verifyToken(ctx context.Context, token string) (string, error) {
 	if err := json.NewDecoder(resp.Body).Decode(&user); err != nil {
 		return "", fmt.Errorf("decoding response: %w", err)
 	}
+
+	// Cache the result
+	cacheMu.Lock()
+	tokenCache[token] = cachedUser{
+		username:  user.Login,
+		expiresAt: time.Now().Add(tokenCacheTTL),
+	}
+	cacheMu.Unlock()
 
 	return user.Login, nil
 }

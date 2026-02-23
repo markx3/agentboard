@@ -84,9 +84,10 @@ func (c *Client) readPump(ctx context.Context) {
 		}
 
 		if c.rateLimited() {
+			payload, _ := safeMarshal(SyncRejectPayload{Reason: "rate limited"})
 			reject, _ := json.Marshal(Message{
 				Type:    MsgSyncReject,
-				Payload: mustMarshal(SyncRejectPayload{Reason: "rate limited"}),
+				Payload: payload,
 			})
 			c.send <- reject
 			continue
@@ -131,10 +132,10 @@ func (c *Client) writePump(ctx context.Context) {
 	}
 }
 
-func mustMarshal(v interface{}) json.RawMessage {
+func safeMarshal(v interface{}) (json.RawMessage, error) {
 	data, err := json.Marshal(v)
 	if err != nil {
-		panic(fmt.Sprintf("mustMarshal: %v", err))
+		return nil, fmt.Errorf("marshalling payload: %w", err)
 	}
-	return data
+	return data, nil
 }

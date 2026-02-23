@@ -6,7 +6,7 @@ import (
 	"log"
 	"net"
 	"net/http"
-	"strings"
+	"net/url"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -28,7 +28,12 @@ var upgrader = websocket.Upgrader{
 		if origin == "" {
 			return true // non-browser clients
 		}
-		return strings.HasPrefix(origin, "http://127.0.0.1") || strings.HasPrefix(origin, "http://localhost")
+		u, err := url.Parse(origin)
+		if err != nil {
+			return false
+		}
+		host := u.Hostname()
+		return host == "127.0.0.1" || host == "localhost" || host == "::1"
 	},
 }
 
