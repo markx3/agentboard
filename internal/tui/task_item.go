@@ -32,11 +32,15 @@ func (t taskItem) FilterValue() string {
 func (t taskItem) statusPrefix() string {
 	switch {
 	case t.task.AgentStatus == db.AgentActive:
+		prefix := "● "
+		if t.task.SkipPermissions {
+			prefix = "●! "
+		}
 		elapsed := formatElapsed(t.task.AgentStartedAt)
 		if elapsed != "" {
-			return agentActiveStyle.Render("● "+elapsed+" ")
+			return agentActiveStyle.Render(prefix+elapsed+" ")
 		}
-		return agentActiveStyle.Render("● ")
+		return agentActiveStyle.Render(prefix)
 	case t.task.Status == db.StatusDone:
 		return agentDoneStyle.Render("● ")
 	case t.task.AgentStatus == db.AgentCompleted:

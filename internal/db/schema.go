@@ -1,6 +1,6 @@
 package db
 
-const schemaVersion = 2
+const schemaVersion = 3
 
 const schemaSQL = `
 CREATE TABLE IF NOT EXISTS tasks (
@@ -19,6 +19,7 @@ CREATE TABLE IF NOT EXISTS tasks (
     agent_started_at TEXT DEFAULT '',
     agent_spawned_status TEXT DEFAULT '',
     reset_requested INTEGER DEFAULT 0,
+    skip_permissions INTEGER DEFAULT 0,
     position INTEGER NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
@@ -86,3 +87,5 @@ CREATE INDEX idx_tasks_status ON tasks(status);
 CREATE INDEX idx_tasks_assignee ON tasks(assignee);
 CREATE UNIQUE INDEX idx_tasks_status_position ON tasks(status, position);
 `
+
+const migrateV2toV3 = `ALTER TABLE tasks ADD COLUMN skip_permissions INTEGER DEFAULT 0;`

@@ -18,16 +18,17 @@ type scanner interface {
 func scanTask(s scanner) (Task, error) {
 	var t Task
 	var createdAt, updatedAt string
-	var resetRequested int
+	var resetRequested, skipPermissions int
 	if err := s.Scan(
 		&t.ID, &t.Title, &t.Description, &t.Status,
 		&t.Assignee, &t.BranchName, &t.PRUrl, &t.PRNumber,
 		&t.AgentName, &t.AgentStatus, &t.AgentStartedAt, &t.AgentSpawnedStatus,
-		&resetRequested, &t.Position,
+		&resetRequested, &skipPermissions, &t.Position,
 		&createdAt, &updatedAt); err != nil {
 		return Task{}, err
 	}
 	t.ResetRequested = resetRequested != 0
+	t.SkipPermissions = skipPermissions != 0
 	var err error
 	t.CreatedAt, err = time.Parse(time.RFC3339, createdAt)
 	if err != nil {
@@ -42,7 +43,7 @@ func scanTask(s scanner) (Task, error) {
 
 const taskColumns = `id, title, description, status, assignee, branch_name, pr_url, pr_number,
 		        agent_name, agent_status, agent_started_at, agent_spawned_status,
-		        reset_requested, position, created_at, updated_at`
+		        reset_requested, skip_permissions, position, created_at, updated_at`
 
 func (d *DB) CreateTask(ctx context.Context, title, description string) (*Task, error) {
 	tx, err := d.conn.BeginTx(ctx, nil)
@@ -80,12 +81,12 @@ func (d *DB) CreateTask(ctx context.Context, title, description string) (*Task, 
 	_, err = tx.ExecContext(ctx,
 		`INSERT INTO tasks (id, title, description, status, assignee, branch_name, pr_url, pr_number,
 		 agent_name, agent_status, agent_started_at, agent_spawned_status, reset_requested,
-		 position, created_at, updated_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		 skip_permissions, position, created_at, updated_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		task.ID, task.Title, task.Description, task.Status,
 		task.Assignee, task.BranchName, task.PRUrl, task.PRNumber,
 		task.AgentName, task.AgentStatus, task.AgentStartedAt, task.AgentSpawnedStatus,
-		boolToInt(task.ResetRequested), task.Position,
+		boolToInt(task.ResetRequested), boolToInt(task.SkipPermissions), task.Position,
 		task.CreatedAt.Format(time.RFC3339), task.UpdatedAt.Format(time.RFC3339))
 	if err != nil {
 		return nil, fmt.Errorf("inserting task: %w", err)
@@ -150,12 +151,12 @@ func (d *DB) UpdateTask(ctx context.Context, task *Task) error {
 	_, err := d.conn.ExecContext(ctx,
 		`UPDATE tasks SET title=?, description=?, status=?, assignee=?, branch_name=?,
 		 pr_url=?, pr_number=?, agent_name=?, agent_status=?, agent_started_at=?,
-		 agent_spawned_status=?, reset_requested=?, position=?, updated_at=?
+		 agent_spawned_status=?, reset_requested=?, skip_permissions=?, position=?, updated_at=?
 		 WHERE id=?`,
 		task.Title, task.Description, task.Status, task.Assignee, task.BranchName,
 		task.PRUrl, task.PRNumber, task.AgentName, task.AgentStatus, task.AgentStartedAt,
-		task.AgentSpawnedStatus, boolToInt(task.ResetRequested), task.Position,
-		task.UpdatedAt.Format(time.RFC3339), task.ID)
+		task.AgentSpawnedStatus, boolToInt(task.ResetRequested), boolToInt(task.SkipPermissions),
+		task.Position, task.UpdatedAt.Format(time.RFC3339), task.ID)
 	if err != nil {
 		return fmt.Errorf("updating task: %w", err)
 	}
