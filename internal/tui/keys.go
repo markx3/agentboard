@@ -59,7 +59,7 @@ var keys = keyMap{
 	),
 	SpawnAgent: key.NewBinding(
 		key.WithKeys("a"),
-		key.WithHelp("a", "spawn agent"),
+		key.WithHelp("a", "spawn/select agent"),
 	),
 	KillAgent: key.NewBinding(
 		key.WithKeys("A"),

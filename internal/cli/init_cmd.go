@@ -33,8 +33,8 @@ func runInit(cmd *cobra.Command, args []string) error {
 	defaultConfig := `[project]
 name = ""
 
-[agent]
-preferred = "claude"
+# [agent]
+# preferred = "claude"  # Reserved for future use
 
 [worktree]
 copy_files = [".env", ".env.local"]

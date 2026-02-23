@@ -139,8 +139,12 @@ func runTaskList(cmd *cobra.Command, args []string) error {
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
 	fmt.Fprintln(w, "ID\tTITLE\tSTATUS\tASSIGNEE\tAGENT")
 	for _, t := range tasks {
+		agentCol := string(t.AgentStatus)
+		if t.AgentName != "" {
+			agentCol = fmt.Sprintf("%s (%s)", t.AgentName, t.AgentStatus)
+		}
 		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n",
-			t.ID[:8], t.Title, t.Status, t.Assignee, t.AgentStatus)
+			t.ID[:8], t.Title, t.Status, t.Assignee, agentCol)
 	}
 	return w.Flush()
 }

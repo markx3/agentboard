@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/marcosfelipeeipper/agentboard/internal/agent"
 	"github.com/marcosfelipeeipper/agentboard/internal/db"
 )
 
@@ -36,11 +37,12 @@ func (t taskItem) statusPrefix() string {
 		if t.task.SkipPermissions {
 			prefix = "●! "
 		}
+		label := agentAbbrev(t.task.AgentName)
 		elapsed := formatElapsed(t.task.AgentStartedAt)
 		if elapsed != "" {
-			return agentActiveStyle.Render(prefix+elapsed+" ")
+			return agentActiveStyle.Render(prefix + label + " " + elapsed + " ")
 		}
-		return agentActiveStyle.Render(prefix)
+		return agentActiveStyle.Render(prefix + label + " ")
 	case t.task.Status == db.StatusDone:
 		return agentDoneStyle.Render("● ")
 	case t.task.AgentStatus == db.AgentCompleted:
@@ -66,6 +68,29 @@ func (t taskItem) cardTintStyle() lipgloss.Style {
 	default:
 		return lipgloss.NewStyle()
 	}
+}
+
+// agentAbbrev returns a short label for the agent type shown in the board view.
+func agentAbbrev(agentName string) string {
+	if r := agent.GetRunner(agentName); r != nil {
+		name := r.Name()
+		// Use first two chars of each word: "Claude Code" → "CC", "Cursor" → "Cu"
+		words := []rune(name)
+		if len(words) >= 2 {
+			// Check for multi-word names
+			for i, ch := range name {
+				if ch == ' ' && i+1 < len(name) {
+					return string([]rune(name)[0:1]) + string([]rune(name)[i+1:i+2])
+				}
+			}
+			return string(words[:2])
+		}
+		return name
+	}
+	if len(agentName) >= 2 {
+		return agentName[:2]
+	}
+	return agentName
 }
 
 func formatElapsed(startedAt string) string {
