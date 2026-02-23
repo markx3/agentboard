@@ -65,7 +65,7 @@ func (d taskDetail) View() string {
 	}
 
 	lines = append(lines, "", fmt.Sprintf("Created: %s", t.CreatedAt.Format("2006-01-02 15:04")))
-	lines = append(lines, "", helpStyle.Render("esc: close | m: move right | M: move left | x: delete"))
+	lines = append(lines, "", helpStyle.Render("esc: close | m/M: move | a: spawn agent | v: view | A: kill agent | x: delete"))
 
 	content := strings.Join(lines, "\n")
 	return overlayStyle.Width(d.width / 2).Render(content)
