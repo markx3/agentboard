@@ -8,8 +8,15 @@ import (
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/marcosfelipeeipper/agentboard/internal/agent"
 	"github.com/marcosfelipeeipper/agentboard/internal/board"
 	"github.com/marcosfelipeeipper/agentboard/internal/db"
+	"github.com/marcosfelipeeipper/agentboard/internal/tmux"
+)
+
+const (
+	agentPollInterval = 2500 * time.Millisecond
+	gracePeriod       = 5 * time.Second
 )
 
 type overlayType int
@@ -21,6 +28,12 @@ const (
 	overlayHelp
 )
 
+// pendingRecon tracks a task whose agent window just died.
+type pendingRecon struct {
+	detectedAt        time.Time
+	columnAtDetection db.TaskStatus
+}
+
 type App struct {
 	board        kanban
 	service      board.Service
@@ -31,18 +44,23 @@ type App struct {
 	width        int
 	height       int
 	ready        bool
+	// pendingRecons tracks tasks in the grace period after their agent window dies.
+	pendingRecons map[string]pendingRecon
+	// lastTasks caches the latest task list for reconciliation.
+	lastTasks []db.Task
 }
 
 func NewApp(svc board.Service) App {
 	return App{
-		board:   newKanban(),
-		service: svc,
-		form:    newTaskForm(),
+		board:         newKanban(),
+		service:       svc,
+		form:          newTaskForm(),
+		pendingRecons: make(map[string]pendingRecon),
 	}
 }
 
 func (a App) Init() tea.Cmd {
-	return a.loadTasks()
+	return tea.Batch(a.loadTasks(), a.scheduleAgentTick())
 }
 
 func (a App) loadTasks() tea.Cmd {
@@ -53,6 +71,13 @@ func (a App) loadTasks() tea.Cmd {
 		}
 		return tasksLoadedMsg{tasks: tasks}
 	}
+}
+
+// scheduleAgentTick returns a Cmd that fires after the poll interval.
+func (a App) scheduleAgentTick() tea.Cmd {
+	return tea.Tick(agentPollInterval, func(time.Time) tea.Msg {
+		return agentTickMsg{}
+	})
 }
 
 func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -69,7 +94,10 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a, nil
 
 	case tasksLoadedMsg:
+		a.lastTasks = msg.tasks
 		a.board.LoadTasks(msg.tasks)
+		// Startup reconciliation: check for stale active states
+		a.reconcileStaleOnStartup()
 		return a, nil
 
 	case taskCreatedMsg:
@@ -81,16 +109,26 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		)
 
 	case taskMovedMsg:
-		return a, tea.Batch(
+		cmds := []tea.Cmd{
 			a.loadTasks(),
 			a.notify(fmt.Sprintf("Moved to %s", msg.newStatus)),
-		)
+		}
+		// Auto-respawn agent if it was active (new column → new workflow)
+		if msg.hadAgent {
+			cmds = append(cmds, a.respawnAgent(msg.taskID, msg.newStatus))
+		}
+		return a, tea.Batch(cmds...)
 
 	case taskDeletedMsg:
 		return a, tea.Batch(
 			a.loadTasks(),
 			a.notify("Task deleted"),
 		)
+
+	case agentTickMsg:
+		cmds := a.reconcileAgents()
+		cmds = append(cmds, a.scheduleAgentTick(), a.loadTasks())
+		return a, tea.Batch(cmds...)
 
 	case errMsg:
 		return a, a.notify(fmt.Sprintf("Error: %s", msg.err))
@@ -101,6 +139,21 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			expires: time.Now().Add(3 * time.Second),
 		}
 		return a, scheduleNotificationClear(3 * time.Second)
+
+	case agentSpawnedMsg:
+		return a, tea.Batch(
+			a.loadTasks(),
+			a.notify("Agent spawned"),
+		)
+
+	case agentKilledMsg:
+		return a, tea.Batch(
+			a.loadTasks(),
+			a.notify("Agent killed"),
+		)
+
+	case agentViewDoneMsg:
+		return a, a.loadTasks()
 
 	case clearNotificationMsg:
 		if a.notification != nil && time.Now().After(a.notification.expires) {
@@ -115,6 +168,97 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	return a.updateBoard(msg)
+}
+
+// reconcileStaleOnStartup checks all active tasks on first load.
+// If an agent window is dead, start grace period immediately.
+func (a *App) reconcileStaleOnStartup() {
+	windows, _ := tmux.ListWindows()
+	for _, task := range a.lastTasks {
+		if task.AgentStatus != db.AgentActive {
+			continue
+		}
+		windowName := agent.WindowName(task)
+		if !windows[windowName] {
+			if _, pending := a.pendingRecons[task.ID]; !pending {
+				a.pendingRecons[task.ID] = pendingRecon{
+					detectedAt:        time.Now(),
+					columnAtDetection: task.Status,
+				}
+			}
+		}
+	}
+}
+
+// reconcileAgents checks agent windows and manages the grace period state machine.
+// Returns commands for any DB updates that need to happen.
+func (a *App) reconcileAgents() []tea.Cmd {
+	var cmds []tea.Cmd
+	ctx := context.Background()
+	windows, _ := tmux.ListWindows()
+
+	for _, task := range a.lastTasks {
+		if task.AgentStatus != db.AgentActive {
+			continue
+		}
+
+		windowName := agent.WindowName(task)
+
+		if windows[windowName] {
+			// Agent is running — clear any pending reconciliation
+			delete(a.pendingRecons, task.ID)
+			continue
+		}
+
+		// Window is dead
+		pending, inGrace := a.pendingRecons[task.ID]
+		if !inGrace {
+			// Just detected — start grace period
+			a.pendingRecons[task.ID] = pendingRecon{
+				detectedAt:        time.Now(),
+				columnAtDetection: task.Status,
+			}
+			continue
+		}
+
+		if time.Since(pending.detectedAt) < gracePeriod {
+			// Still in grace period — wait
+			continue
+		}
+
+		// Grace period elapsed — determine outcome
+		delete(a.pendingRecons, task.ID)
+
+		// Re-read task from DB (agent may have moved it during grace period)
+		freshTask, err := a.service.GetTask(ctx, task.ID)
+		if err != nil {
+			continue
+		}
+
+		if freshTask.ResetRequested {
+			// Agent wants fresh context — mark idle for respawn
+			freshTask.ResetRequested = false
+			freshTask.AgentStatus = db.AgentIdle
+			freshTask.AgentStartedAt = ""
+			freshTask.AgentSpawnedStatus = ""
+			a.service.UpdateTask(ctx, freshTask)
+			cmds = append(cmds, a.notify("Agent reset requested — ready for respawn"))
+		} else if freshTask.Status != pending.columnAtDetection {
+			// Task moved to a new column — agent completed successfully
+			freshTask.AgentStatus = db.AgentCompleted
+			freshTask.AgentStartedAt = ""
+			freshTask.AgentSpawnedStatus = ""
+			a.service.UpdateTask(ctx, freshTask)
+		} else {
+			// Task still in same column — agent crashed/failed
+			freshTask.AgentStatus = db.AgentError
+			freshTask.AgentStartedAt = ""
+			freshTask.AgentSpawnedStatus = ""
+			a.service.UpdateTask(ctx, freshTask)
+		}
+	}
+
+	return cmds
 }
 
 func (a App) updateOverlay(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -175,6 +319,21 @@ func (a App) updateDetail(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return a, a.moveTask(a.detail.task.ID, a.nextStatus(a.detail.task.Status))
 		case key.Matches(msg, keys.MoveLeft):
 			return a, a.moveTask(a.detail.task.ID, a.prevStatus(a.detail.task.Status))
+		case key.Matches(msg, keys.SpawnAgent):
+			if a.detail.task.AgentStatus == db.AgentActive {
+				return a, a.notify("Agent already running")
+			}
+			return a, a.spawnAgent(a.detail.task)
+		case key.Matches(msg, keys.KillAgent):
+			if a.detail.task.AgentStatus != db.AgentActive {
+				return a, a.notify("No agent running")
+			}
+			return a, a.killAgent(a.detail.task)
+		case key.Matches(msg, keys.ViewAgent):
+			if a.detail.task.AgentStatus != db.AgentActive {
+				return a, a.notify("No agent running")
+			}
+			return a, a.viewAgent(a.detail.task)
 		case key.Matches(msg, keys.Delete):
 			a.overlay = overlayNone
 			return a, a.deleteTask(a.detail.task.ID)
@@ -204,6 +363,9 @@ func (a App) updateBoard(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return a, a.form.titleInput.Focus()
 		case key.Matches(msg, keys.Enter):
 			if task := a.board.SelectedTask(); task != nil {
+				if task.AgentStatus == db.AgentActive {
+					return a, a.viewAgent(*task)
+				}
 				a.detail = newTaskDetail(*task)
 				a.detail.SetSize(a.width, a.height)
 				a.overlay = overlayDetail
@@ -217,6 +379,30 @@ func (a App) updateBoard(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case key.Matches(msg, keys.MoveLeft):
 			if task := a.board.SelectedTask(); task != nil {
 				return a, a.moveTask(task.ID, a.board.PrevColumn())
+			}
+			return a, nil
+		case key.Matches(msg, keys.SpawnAgent):
+			if task := a.board.SelectedTask(); task != nil {
+				if task.AgentStatus == db.AgentActive {
+					return a, a.notify("Agent already running")
+				}
+				return a, a.spawnAgent(*task)
+			}
+			return a, nil
+		case key.Matches(msg, keys.KillAgent):
+			if task := a.board.SelectedTask(); task != nil {
+				if task.AgentStatus != db.AgentActive {
+					return a, a.notify("No agent running")
+				}
+				return a, a.killAgent(*task)
+			}
+			return a, nil
+		case key.Matches(msg, keys.ViewAgent):
+			if task := a.board.SelectedTask(); task != nil {
+				if task.AgentStatus != db.AgentActive {
+					return a, a.notify("No agent running")
+				}
+				return a, a.viewAgent(*task)
 			}
 			return a, nil
 		case key.Matches(msg, keys.Delete):
@@ -247,7 +433,7 @@ func (a App) View() string {
 		statusBar = notificationStyle.Render(a.notification.text)
 	}
 
-	help := helpStyle.Render(" h/l:columns  j/k:tasks  o:new  m/M:move  enter:open  x:delete  ?:help  q:quit")
+	help := helpStyle.Render(" h/l:columns  j/k:tasks  o:new  m/M:move  a:agent  v:view  A:kill  enter:open/view  x:delete  ?:help  q:quit")
 
 	mainView := lipgloss.JoinVertical(lipgloss.Left, boardView, statusBar, help)
 
@@ -287,9 +473,11 @@ Actions:
   o         Create new task
   m         Move task right
   M         Move task left
-  enter     Open task detail
+  enter     Open task (view agent if active)
   x         Delete task
-  /         Search tasks
+  a         Spawn agent on task
+  v         View agent (split pane, Ctrl+q to close)
+  A         Kill running agent
 
 General:
   ?         Toggle help
@@ -320,17 +508,48 @@ func (a App) createTask(title, description string) tea.Cmd {
 }
 
 func (a App) moveTask(id string, newStatus db.TaskStatus) tea.Cmd {
+	// Check if the task has an active agent before moving (for auto-respawn)
+	hadAgent := false
+	if task := a.board.SelectedTask(); task != nil && task.ID == id {
+		hadAgent = task.AgentStatus == db.AgentActive
+	} else if a.overlay == overlayDetail && a.detail.task.ID == id {
+		hadAgent = a.detail.task.AgentStatus == db.AgentActive
+	}
+
 	return func() tea.Msg {
-		if err := a.service.MoveTask(context.Background(), id, newStatus); err != nil {
+		ctx := context.Background()
+		if err := a.service.MoveTask(ctx, id, newStatus); err != nil {
 			return errMsg{err}
 		}
-		return taskMovedMsg{taskID: id, newStatus: newStatus}
+		// When a task is moved via TUI and no agent window is alive,
+		// reset agent status to idle (prevents stale completed/error states)
+		if !hadAgent {
+			task, err := a.service.GetTask(ctx, id)
+			if err == nil && task.AgentStatus != db.AgentIdle {
+				windowName := agent.WindowName(*task)
+				if !tmux.IsWindowAlive(windowName) {
+					task.AgentStatus = db.AgentIdle
+					task.AgentStartedAt = ""
+					task.AgentSpawnedStatus = ""
+					task.ResetRequested = false
+					a.service.UpdateTask(ctx, task)
+				}
+			}
+		}
+		return taskMovedMsg{taskID: id, newStatus: newStatus, hadAgent: hadAgent}
 	}
 }
 
 func (a App) deleteTask(id string) tea.Cmd {
 	return func() tea.Msg {
-		if err := a.service.DeleteTask(context.Background(), id); err != nil {
+		ctx := context.Background()
+		// Kill agent window before deleting
+		task, err := a.service.GetTask(ctx, id)
+		if err == nil && task.AgentStatus == db.AgentActive {
+			windowName := agent.WindowName(*task)
+			tmux.KillWindow(windowName)
+		}
+		if err := a.service.DeleteTask(ctx, id); err != nil {
 			return errMsg{err}
 		}
 		return taskDeletedMsg{taskID: id}
@@ -353,4 +572,62 @@ func (a App) prevStatus(current db.TaskStatus) db.TaskStatus {
 		}
 	}
 	return current
+}
+
+// Agent command helpers
+
+func (a App) spawnAgent(task db.Task) tea.Cmd {
+	return func() tea.Msg {
+		if err := agent.Spawn(context.Background(), a.service, task); err != nil {
+			return errMsg{fmt.Errorf("%s", err)}
+		}
+		return agentSpawnedMsg{taskID: task.ID}
+	}
+}
+
+func (a App) viewAgent(task db.Task) tea.Cmd {
+	winName := agent.WindowName(task)
+	if tmux.InTmux() {
+		// Split pane: agent on the right, TUI stays running
+		return func() tea.Msg {
+			if err := tmux.SplitView(winName); err != nil {
+				return errMsg{fmt.Errorf("split view: %w", err)}
+			}
+			return nil
+		}
+	}
+	// Not in tmux: full-screen attach, Ctrl+q to return to TUI
+	c := tmux.AttachCmd(winName)
+	return tea.ExecProcess(c, func(err error) tea.Msg {
+		return agentViewDoneMsg{}
+	})
+}
+
+func (a App) respawnAgent(taskID string, newStatus db.TaskStatus) tea.Cmd {
+	return func() tea.Msg {
+		// Fetch the updated task from DB
+		tasks, err := a.service.ListTasks(context.Background())
+		if err != nil {
+			return errMsg{err}
+		}
+		for _, t := range tasks {
+			if t.ID == taskID {
+				// Spawn handles killing the old window and creating a new one
+				if err := agent.Spawn(context.Background(), a.service, t); err != nil {
+					return errMsg{fmt.Errorf("respawn agent: %w", err)}
+				}
+				return agentSpawnedMsg{taskID: taskID}
+			}
+		}
+		return nil
+	}
+}
+
+func (a App) killAgent(task db.Task) tea.Cmd {
+	return func() tea.Msg {
+		if err := agent.Kill(context.Background(), a.service, task); err != nil {
+			return errMsg{fmt.Errorf("%s", err)}
+		}
+		return agentKilledMsg{taskID: task.ID}
+	}
 }

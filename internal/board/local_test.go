@@ -89,6 +89,7 @@ func TestMoveTaskService(t *testing.T) {
 	statuses := []db.TaskStatus{
 		db.StatusPlanning,
 		db.StatusInProgress,
+		db.StatusReview,
 		db.StatusDone,
 	}
 

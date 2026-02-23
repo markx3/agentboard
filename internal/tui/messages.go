@@ -15,6 +15,7 @@ type taskCreatedMsg struct {
 type taskMovedMsg struct {
 	taskID    string
 	newStatus db.TaskStatus
+	hadAgent  bool
 }
 
 type taskDeletedMsg struct {
@@ -31,3 +32,17 @@ type notifyMsg struct {
 	text string
 }
 
+// Agent lifecycle messages
+
+type agentSpawnedMsg struct {
+	taskID string
+}
+
+type agentKilledMsg struct {
+	taskID string
+}
+
+type agentViewDoneMsg struct{}
+
+// agentTickMsg triggers periodic reconciliation of agent statuses.
+type agentTickMsg struct{}

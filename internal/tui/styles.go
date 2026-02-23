@@ -31,14 +31,18 @@ var (
 			BorderForeground(lipgloss.Color("#e6b450")).
 			Padding(1, 2)
 
-	agentActiveStyle = lipgloss.NewStyle().
-				Foreground(lipgloss.Color("#50fa7b"))
+	// Five-color agent status indicators
+	agentDoneStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color("#50fa7b")) // Green
+	agentCompletedStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#8be9fd")) // Cyan/Teal
+	agentActiveStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("#f1fa8c")) // Yellow
+	agentErrorStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("#ff5555")) // Red
+	agentIdleStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color("#888888")) // Gray
 
-	agentErrorStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#ff5555"))
-
-	agentIdleStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#888888"))
+	// Subtle background tints for card items
+	cardDoneBg      = lipgloss.NewStyle().Background(lipgloss.Color("#1a3a2a"))
+	cardCompletedBg = lipgloss.NewStyle().Background(lipgloss.Color("#1a2a3a"))
+	cardActiveBg    = lipgloss.NewStyle().Background(lipgloss.Color("#3a3a1a"))
+	cardErrorBg     = lipgloss.NewStyle().Background(lipgloss.Color("#3a1a1a"))
 
 	helpStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#666666"))

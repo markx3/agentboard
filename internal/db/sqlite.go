@@ -80,6 +80,26 @@ func (d *DB) migrate(ctx context.Context) error {
 		return nil
 	}
 
-	// Future migrations would go here
+	// Migration v1 → v2: add agent_started_at, agent_spawned_status, reset_requested;
+	// expand agent_status CHECK to include 'completed'
+	if currentVersion < 2 {
+		tx, txErr := d.conn.BeginTx(ctx, nil)
+		if txErr != nil {
+			return fmt.Errorf("beginning v2 migration transaction: %w", txErr)
+		}
+		defer tx.Rollback()
+
+		if _, txErr = tx.ExecContext(ctx, migrateV1toV2); txErr != nil {
+			return fmt.Errorf("applying v2 migration: %w", txErr)
+		}
+		if _, txErr = tx.ExecContext(ctx,
+			"INSERT OR REPLACE INTO schema_version (version) VALUES (2)"); txErr != nil {
+			return fmt.Errorf("updating schema version to 2: %w", txErr)
+		}
+		if txErr = tx.Commit(); txErr != nil {
+			return fmt.Errorf("committing v2 migration: %w", txErr)
+		}
+	}
+
 	return nil
 }
