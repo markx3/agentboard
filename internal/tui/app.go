@@ -36,6 +36,12 @@ type pendingRecon struct {
 	columnAtDetection db.TaskStatus
 }
 
+// pendingFocus tracks where to move the cursor after tasks reload.
+type pendingFocus struct {
+	taskID    string
+	newStatus db.TaskStatus
+}
+
 type App struct {
 	board        kanban
 	service      board.Service
@@ -55,6 +61,8 @@ type App struct {
 	pendingRecons map[string]pendingRecon
 	// lastTasks caches the latest task list for reconciliation.
 	lastTasks []db.Task
+	// cursorFollow stores where to move the cursor after the next task reload.
+	cursorFollow *pendingFocus
 }
 
 func NewApp(svc board.Service) App {
@@ -104,6 +112,12 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tasksLoadedMsg:
 		a.lastTasks = msg.tasks
 		a.board.LoadTasks(msg.tasks)
+		// Follow cursor to the column where a task was just moved
+		if a.cursorFollow != nil {
+			a.board.FocusOnStatus(a.cursorFollow.newStatus)
+			a.board.SelectTaskByID(a.cursorFollow.taskID)
+			a.cursorFollow = nil
+		}
 		// Startup reconciliation: check for stale active states
 		a.reconcileStaleOnStartup()
 		return a, nil
@@ -117,6 +131,7 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		)
 
 	case taskMovedMsg:
+		a.cursorFollow = &pendingFocus{taskID: msg.taskID, newStatus: msg.newStatus}
 		cmds := []tea.Cmd{
 			a.loadTasks(),
 			a.notify(fmt.Sprintf("Moved to %s", msg.newStatus)),

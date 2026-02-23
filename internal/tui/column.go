@@ -60,6 +60,16 @@ func (c *column) SelectedTask() *db.Task {
 	return &ti.task
 }
 
+// SelectTaskByID moves the list cursor to the task with the given ID.
+func (c *column) SelectTaskByID(taskID string) {
+	for i, item := range c.list.Items() {
+		if ti, ok := item.(taskItem); ok && ti.task.ID == taskID {
+			c.list.Select(i)
+			return
+		}
+	}
+}
+
 func (c column) Update(msg tea.Msg) (column, tea.Cmd) {
 	var cmd tea.Cmd
 	c.list, cmd = c.list.Update(msg)
