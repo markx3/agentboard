@@ -23,25 +23,29 @@ func (s TaskStatus) Valid() bool {
 type AgentStatus string
 
 const (
-	AgentIdle   AgentStatus = "idle"
-	AgentActive AgentStatus = "active"
-	AgentError  AgentStatus = "error"
+	AgentIdle      AgentStatus = "idle"
+	AgentActive    AgentStatus = "active"
+	AgentCompleted AgentStatus = "completed"
+	AgentError     AgentStatus = "error"
 )
 
 type Task struct {
-	ID          string     `json:"id"`
-	Title       string     `json:"title"`
-	Description string     `json:"description"`
-	Status      TaskStatus `json:"status"`
-	Assignee    string     `json:"assignee"`
-	BranchName  string     `json:"branch_name"`
-	PRUrl       string     `json:"pr_url"`
-	PRNumber    int        `json:"pr_number"`
-	AgentName   string     `json:"agent_name"`
-	AgentStatus AgentStatus `json:"agent_status"`
-	Position    int        `json:"position"`
-	CreatedAt   time.Time  `json:"created_at"`
-	UpdatedAt   time.Time  `json:"updated_at"`
+	ID                 string      `json:"id"`
+	Title              string      `json:"title"`
+	Description        string      `json:"description"`
+	Status             TaskStatus  `json:"status"`
+	Assignee           string      `json:"assignee"`
+	BranchName         string      `json:"branch_name"`
+	PRUrl              string      `json:"pr_url"`
+	PRNumber           int         `json:"pr_number"`
+	AgentName          string      `json:"agent_name"`
+	AgentStatus        AgentStatus `json:"agent_status"`
+	AgentStartedAt     string      `json:"agent_started_at"`
+	AgentSpawnedStatus string      `json:"agent_spawned_status"`
+	ResetRequested     bool        `json:"reset_requested"`
+	Position           int         `json:"position"`
+	CreatedAt          time.Time   `json:"created_at"`
+	UpdatedAt          time.Time   `json:"updated_at"`
 }
 
 type Comment struct {
