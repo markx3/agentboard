@@ -73,6 +73,12 @@ func ListWindows() (map[string]bool, error) {
 	return windows, nil
 }
 
+// IsWindowAlive checks if a window with the given name exists in the agentboard session.
+func IsWindowAlive(windowName string) bool {
+	windows, _ := ListWindows()
+	return windows[windowName]
+}
+
 // SplitView opens a horizontal tmux split in the caller's current window,
 // attaching to the agentboard session with the given window focused.
 // This requires the caller to be running inside tmux.

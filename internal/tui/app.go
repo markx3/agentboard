@@ -14,6 +14,11 @@ import (
 	"github.com/marcosfelipeeipper/agentboard/internal/tmux"
 )
 
+const (
+	agentPollInterval = 2500 * time.Millisecond
+	gracePeriod       = 5 * time.Second
+)
+
 type overlayType int
 
 const (
@@ -22,6 +27,12 @@ const (
 	overlayDetail
 	overlayHelp
 )
+
+// pendingRecon tracks a task whose agent window just died.
+type pendingRecon struct {
+	detectedAt        time.Time
+	columnAtDetection db.TaskStatus
+}
 
 type App struct {
 	board        kanban
@@ -33,19 +44,23 @@ type App struct {
 	width        int
 	height       int
 	ready        bool
-	agentPolling bool
+	// pendingRecons tracks tasks in the grace period after their agent window dies.
+	pendingRecons map[string]pendingRecon
+	// lastTasks caches the latest task list for reconciliation.
+	lastTasks []db.Task
 }
 
 func NewApp(svc board.Service) App {
 	return App{
-		board:   newKanban(),
-		service: svc,
-		form:    newTaskForm(),
+		board:         newKanban(),
+		service:       svc,
+		form:          newTaskForm(),
+		pendingRecons: make(map[string]pendingRecon),
 	}
 }
 
 func (a App) Init() tea.Cmd {
-	return a.loadTasks()
+	return tea.Batch(a.loadTasks(), a.scheduleAgentTick())
 }
 
 func (a App) loadTasks() tea.Cmd {
@@ -56,6 +71,13 @@ func (a App) loadTasks() tea.Cmd {
 		}
 		return tasksLoadedMsg{tasks: tasks}
 	}
+}
+
+// scheduleAgentTick returns a Cmd that fires after the poll interval.
+func (a App) scheduleAgentTick() tea.Cmd {
+	return tea.Tick(agentPollInterval, func(time.Time) tea.Msg {
+		return agentTickMsg{}
+	})
 }
 
 func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -72,21 +94,10 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a, nil
 
 	case tasksLoadedMsg:
+		a.lastTasks = msg.tasks
 		a.board.LoadTasks(msg.tasks)
-		hasActive := false
-		for _, t := range msg.tasks {
-			if t.AgentStatus == db.AgentActive {
-				hasActive = true
-				break
-			}
-		}
-		if hasActive && !a.agentPolling {
-			a.agentPolling = true
-			return a, a.scheduleAgentPoll()
-		}
-		if !hasActive {
-			a.agentPolling = false
-		}
+		// Startup reconciliation: check for stale active states
+		a.reconcileStaleOnStartup()
 		return a, nil
 
 	case taskCreatedMsg:
@@ -114,6 +125,11 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.notify("Task deleted"),
 		)
 
+	case agentTickMsg:
+		cmds := a.reconcileAgents()
+		cmds = append(cmds, a.scheduleAgentTick(), a.loadTasks())
+		return a, tea.Batch(cmds...)
+
 	case errMsg:
 		return a, a.notify(fmt.Sprintf("Error: %s", msg.err))
 
@@ -125,11 +141,9 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a, scheduleNotificationClear(3 * time.Second)
 
 	case agentSpawnedMsg:
-		a.agentPolling = true
 		return a, tea.Batch(
 			a.loadTasks(),
 			a.notify("Agent spawned"),
-			a.scheduleAgentPoll(),
 		)
 
 	case agentKilledMsg:
@@ -140,18 +154,6 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case agentViewDoneMsg:
 		return a, a.loadTasks()
-
-	case agentPollTickMsg:
-		if a.agentPolling {
-			return a, a.pollAgents()
-		}
-		return a, nil
-
-	case agentPollMsg:
-		return a, tea.Batch(
-			a.reconcileAgents(msg.alive),
-			a.scheduleAgentPoll(),
-		)
 
 	case clearNotificationMsg:
 		if a.notification != nil && time.Now().After(a.notification.expires) {
@@ -166,6 +168,97 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	return a.updateBoard(msg)
+}
+
+// reconcileStaleOnStartup checks all active tasks on first load.
+// If an agent window is dead, start grace period immediately.
+func (a *App) reconcileStaleOnStartup() {
+	windows, _ := tmux.ListWindows()
+	for _, task := range a.lastTasks {
+		if task.AgentStatus != db.AgentActive {
+			continue
+		}
+		windowName := agent.WindowName(task)
+		if !windows[windowName] {
+			if _, pending := a.pendingRecons[task.ID]; !pending {
+				a.pendingRecons[task.ID] = pendingRecon{
+					detectedAt:        time.Now(),
+					columnAtDetection: task.Status,
+				}
+			}
+		}
+	}
+}
+
+// reconcileAgents checks agent windows and manages the grace period state machine.
+// Returns commands for any DB updates that need to happen.
+func (a *App) reconcileAgents() []tea.Cmd {
+	var cmds []tea.Cmd
+	ctx := context.Background()
+	windows, _ := tmux.ListWindows()
+
+	for _, task := range a.lastTasks {
+		if task.AgentStatus != db.AgentActive {
+			continue
+		}
+
+		windowName := agent.WindowName(task)
+
+		if windows[windowName] {
+			// Agent is running — clear any pending reconciliation
+			delete(a.pendingRecons, task.ID)
+			continue
+		}
+
+		// Window is dead
+		pending, inGrace := a.pendingRecons[task.ID]
+		if !inGrace {
+			// Just detected — start grace period
+			a.pendingRecons[task.ID] = pendingRecon{
+				detectedAt:        time.Now(),
+				columnAtDetection: task.Status,
+			}
+			continue
+		}
+
+		if time.Since(pending.detectedAt) < gracePeriod {
+			// Still in grace period — wait
+			continue
+		}
+
+		// Grace period elapsed — determine outcome
+		delete(a.pendingRecons, task.ID)
+
+		// Re-read task from DB (agent may have moved it during grace period)
+		freshTask, err := a.service.GetTask(ctx, task.ID)
+		if err != nil {
+			continue
+		}
+
+		if freshTask.ResetRequested {
+			// Agent wants fresh context — mark idle for respawn
+			freshTask.ResetRequested = false
+			freshTask.AgentStatus = db.AgentIdle
+			freshTask.AgentStartedAt = ""
+			freshTask.AgentSpawnedStatus = ""
+			a.service.UpdateTask(ctx, freshTask)
+			cmds = append(cmds, a.notify("Agent reset requested — ready for respawn"))
+		} else if freshTask.Status != pending.columnAtDetection {
+			// Task moved to a new column — agent completed successfully
+			freshTask.AgentStatus = db.AgentCompleted
+			freshTask.AgentStartedAt = ""
+			freshTask.AgentSpawnedStatus = ""
+			a.service.UpdateTask(ctx, freshTask)
+		} else {
+			// Task still in same column — agent crashed/failed
+			freshTask.AgentStatus = db.AgentError
+			freshTask.AgentStartedAt = ""
+			freshTask.AgentSpawnedStatus = ""
+			a.service.UpdateTask(ctx, freshTask)
+		}
+	}
+
+	return cmds
 }
 
 func (a App) updateOverlay(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -424,8 +517,24 @@ func (a App) moveTask(id string, newStatus db.TaskStatus) tea.Cmd {
 	}
 
 	return func() tea.Msg {
-		if err := a.service.MoveTask(context.Background(), id, newStatus); err != nil {
+		ctx := context.Background()
+		if err := a.service.MoveTask(ctx, id, newStatus); err != nil {
 			return errMsg{err}
+		}
+		// When a task is moved via TUI and no agent window is alive,
+		// reset agent status to idle (prevents stale completed/error states)
+		if !hadAgent {
+			task, err := a.service.GetTask(ctx, id)
+			if err == nil && task.AgentStatus != db.AgentIdle {
+				windowName := agent.WindowName(*task)
+				if !tmux.IsWindowAlive(windowName) {
+					task.AgentStatus = db.AgentIdle
+					task.AgentStartedAt = ""
+					task.AgentSpawnedStatus = ""
+					task.ResetRequested = false
+					a.service.UpdateTask(ctx, task)
+				}
+			}
 		}
 		return taskMovedMsg{taskID: id, newStatus: newStatus, hadAgent: hadAgent}
 	}
@@ -433,7 +542,14 @@ func (a App) moveTask(id string, newStatus db.TaskStatus) tea.Cmd {
 
 func (a App) deleteTask(id string) tea.Cmd {
 	return func() tea.Msg {
-		if err := a.service.DeleteTask(context.Background(), id); err != nil {
+		ctx := context.Background()
+		// Kill agent window before deleting
+		task, err := a.service.GetTask(ctx, id)
+		if err == nil && task.AgentStatus == db.AgentActive {
+			windowName := agent.WindowName(*task)
+			tmux.KillWindow(windowName)
+		}
+		if err := a.service.DeleteTask(ctx, id); err != nil {
 			return errMsg{err}
 		}
 		return taskDeletedMsg{taskID: id}
@@ -513,49 +629,5 @@ func (a App) killAgent(task db.Task) tea.Cmd {
 			return errMsg{fmt.Errorf("%s", err)}
 		}
 		return agentKilledMsg{taskID: task.ID}
-	}
-}
-
-func (a App) pollAgents() tea.Cmd {
-	return func() tea.Msg {
-		alive, err := tmux.ListWindows()
-		if err != nil {
-			return agentPollMsg{alive: map[string]bool{}}
-		}
-		return agentPollMsg{alive: alive}
-	}
-}
-
-func (a App) scheduleAgentPoll() tea.Cmd {
-	return tea.Tick(2500*time.Millisecond, func(time.Time) tea.Msg {
-		return agentPollTickMsg{}
-	})
-}
-
-func (a App) reconcileAgents(alive map[string]bool) tea.Cmd {
-	return func() tea.Msg {
-		tasks, err := a.service.ListTasks(context.Background())
-		if err != nil {
-			return errMsg{err}
-		}
-
-		changed := false
-		for _, t := range tasks {
-			if t.AgentStatus != db.AgentActive {
-				continue
-			}
-			if alive[agent.WindowName(t)] {
-				continue
-			}
-			// Window is gone — agent crashed or exited
-			t.AgentStatus = db.AgentError
-			_ = a.service.UpdateTask(context.Background(), &t)
-			changed = true
-		}
-
-		if changed {
-			tasks, _ = a.service.ListTasks(context.Background())
-		}
-		return tasksLoadedMsg{tasks: tasks}
 	}
 }
