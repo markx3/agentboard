@@ -42,11 +42,7 @@ type agentKilledMsg struct {
 	taskID string
 }
 
-type agentPollMsg struct {
-	alive map[string]bool
-}
-
-type agentPollTickMsg struct{}
-
 type agentViewDoneMsg struct{}
 
+// agentTickMsg triggers periodic reconciliation of agent statuses.
+type agentTickMsg struct{}
