@@ -40,7 +40,7 @@ func newColumn(title string, status db.TaskStatus) column {
 func (c *column) SetSize(w, h int) {
 	c.width = w
 	c.height = h
-	c.list.SetSize(w-4, h-4) // Account for border + padding
+	c.list.SetSize(w-2, h-4) // Account for padding (border handled by board)
 }
 
 func (c *column) SetItems(tasks []db.Task) {
@@ -67,9 +67,9 @@ func (c column) Update(msg tea.Msg) (column, tea.Cmd) {
 }
 
 func (c column) View() string {
-	header := headerStyle.Width(c.width - 4).Render(c.title)
+	header := headerStyle.Width(c.width - 2).Render(c.title)
 
-	count := countStyle.Width(c.width - 4).
+	count := countStyle.Width(c.width - 2).
 		Render(countLabel(len(c.list.Items())))
 
 	content := header + "\n" + count + "\n" + c.list.View()
