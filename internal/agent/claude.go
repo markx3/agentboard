@@ -92,3 +92,59 @@ func buildClaudeInitialPrompt(opts SpawnOpts) string {
 		return "Begin working on this task."
 	}
 }
+
+func (c *ClaudeRunner) BuildEnrichmentCommand(opts SpawnOpts) string {
+	sysPrompt := buildEnrichmentSystemPrompt(opts)
+	initialPrompt := buildEnrichmentInitialPrompt(opts)
+	return fmt.Sprintf("timeout 90 claude --dangerously-skip-permissions -w %s --append-system-prompt %s %s",
+		shellQuote(opts.WorkDir),
+		shellQuote(sysPrompt),
+		shellQuote(initialPrompt),
+	)
+}
+
+func buildEnrichmentSystemPrompt(opts SpawnOpts) string {
+	task := opts.Task
+	shortID := task.ID[:8]
+
+	var b strings.Builder
+	b.WriteString("You are an enrichment agent for agentboard.\n")
+	b.WriteString("Your job is to enrich a newly created task with context from the codebase and board.\n")
+	b.WriteString("You are short-lived -- gather context, update the task, and exit.\n\n")
+	fmt.Fprintf(&b, "Task to enrich: %s (ID: %s)\n", task.Title, shortID)
+	if task.Description != "" {
+		fmt.Fprintf(&b, "Current description: %s\n", task.Description)
+	}
+	b.WriteString("\nIMPORTANT: Do NOT move the task, spawn agents, or do implementation work.\n")
+	b.WriteString("Only read, analyze, and update the task description/dependencies/comments.\n")
+	fmt.Fprintf(&b, "\nCLI commands available:\n")
+	fmt.Fprintf(&b, "  agentboard task list --json          # See all tasks\n")
+	fmt.Fprintf(&b, "  agentboard task get <id> --json      # Get task details with deps/comments\n")
+	fmt.Fprintf(&b, "  agentboard status --json             # Board summary\n")
+	fmt.Fprintf(&b, "  agentboard task update %s --description \"...\" --add-dep <dep-id>\n", shortID)
+	fmt.Fprintf(&b, "  agentboard task comment %s --author enrichment --body \"...\"\n", shortID)
+	b.WriteString("\nRetry with jitter if you get database-locked errors:\n")
+	b.WriteString("  for i in 1 2 3; do agentboard task update ... && break || sleep $((RANDOM %% 3 + 1)); done\n")
+
+	return b.String()
+}
+
+func buildEnrichmentInitialPrompt(opts SpawnOpts) string {
+	task := opts.Task
+	shortID := task.ID[:8]
+
+	var b strings.Builder
+	b.WriteString("Enrich this task by:\n\n")
+	b.WriteString("1. Run `agentboard task list --json` to see all tasks and their statuses\n")
+	b.WriteString("2. Run `agentboard status --json` to see the board summary\n")
+	b.WriteString("3. Scan `git log --oneline -20`, `git branch -a`, `git status`\n")
+	b.WriteString("4. Read relevant files in the codebase that relate to the task title\n")
+	b.WriteString("5. Identify dependencies with existing in-flight tasks\n")
+	fmt.Fprintf(&b, "6. Update the task: `agentboard task update %s --description \"enriched description\"`\n", shortID)
+	fmt.Fprintf(&b, "7. Add dependencies: `agentboard task update %s --add-dep <dep-id>`\n", shortID)
+	fmt.Fprintf(&b, "8. Leave a comment: `agentboard task comment %s --author enrichment --body \"analysis summary\"`\n", shortID)
+	b.WriteString("9. Exit when done\n\n")
+	b.WriteString("Be concise. Focus on actionable context: what this task depends on, what's related, and any codebase insights.\n")
+
+	return b.String()
+}

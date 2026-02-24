@@ -4,11 +4,12 @@ import "github.com/marcosfelipeeipper/agentboard/internal/db"
 
 // AgentRunner abstracts an AI agent CLI.
 type AgentRunner interface {
-	ID() string                        // Canonical DB identifier (e.g., "claude", "cursor")
-	Name() string                      // Display name (e.g., "Claude Code", "Cursor")
-	Binary() string                    // Executable name for PATH lookup
-	Available() bool                   // Is this agent detected and verified?
-	BuildCommand(opts SpawnOpts) string // Build the full shell command
+	ID() string                                  // Canonical DB identifier (e.g., "claude", "cursor")
+	Name() string                                // Display name (e.g., "Claude Code", "Cursor")
+	Binary() string                              // Executable name for PATH lookup
+	Available() bool                             // Is this agent detected and verified?
+	BuildCommand(opts SpawnOpts) string           // Build the full shell command for task work
+	BuildEnrichmentCommand(opts SpawnOpts) string // Build enrichment command ("" if unsupported)
 }
 
 // SpawnOpts holds the context needed to build an agent command.
