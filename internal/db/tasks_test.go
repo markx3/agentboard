@@ -249,6 +249,211 @@ func TestMoveToBrainstorm(t *testing.T) {
 	}
 }
 
+func TestEnrichmentFields(t *testing.T) {
+	database := setupTestDB(t)
+	ctx := context.Background()
+
+	task, err := database.CreateTask(ctx, "Enrichable", "desc")
+	if err != nil {
+		t.Fatalf("creating task: %v", err)
+	}
+
+	// Defaults
+	if task.EnrichmentStatus != db.EnrichmentNone {
+		t.Errorf("default enrichment_status: got %q, want %q", task.EnrichmentStatus, db.EnrichmentNone)
+	}
+	if task.EnrichmentAgentName != "" {
+		t.Errorf("default enrichment_agent_name: got %q, want empty", task.EnrichmentAgentName)
+	}
+
+	// Update enrichment via full UpdateTask
+	task.EnrichmentStatus = db.EnrichmentEnriching
+	task.EnrichmentAgentName = "claude"
+	if err := database.UpdateTask(ctx, task); err != nil {
+		t.Fatalf("updating task: %v", err)
+	}
+
+	got, _ := database.GetTask(ctx, task.ID)
+	if got.EnrichmentStatus != db.EnrichmentEnriching {
+		t.Errorf("enrichment_status: got %q, want %q", got.EnrichmentStatus, db.EnrichmentEnriching)
+	}
+	if got.EnrichmentAgentName != "claude" {
+		t.Errorf("enrichment_agent_name: got %q, want %q", got.EnrichmentAgentName, "claude")
+	}
+}
+
+func TestEnrichmentStatusValid(t *testing.T) {
+	tests := []struct {
+		s    db.EnrichmentStatus
+		want bool
+	}{
+		{db.EnrichmentNone, true},
+		{db.EnrichmentPending, true},
+		{db.EnrichmentEnriching, true},
+		{db.EnrichmentDone, true},
+		{db.EnrichmentError, true},
+		{db.EnrichmentSkipped, true},
+		{"invalid", false},
+	}
+	for _, tt := range tests {
+		if got := tt.s.Valid(); got != tt.want {
+			t.Errorf("EnrichmentStatus(%q).Valid() = %v, want %v", tt.s, got, tt.want)
+		}
+	}
+}
+
+func TestUpdateTaskFields(t *testing.T) {
+	database := setupTestDB(t)
+	ctx := context.Background()
+
+	task, _ := database.CreateTask(ctx, "Original Title", "Original desc")
+
+	// Partial update: only title
+	newTitle := "Updated Title"
+	err := database.UpdateTaskFields(ctx, task.ID, db.TaskFieldUpdate{
+		Title: &newTitle,
+	})
+	if err != nil {
+		t.Fatalf("partial update title: %v", err)
+	}
+
+	got, _ := database.GetTask(ctx, task.ID)
+	if got.Title != "Updated Title" {
+		t.Errorf("title: got %q, want %q", got.Title, "Updated Title")
+	}
+	if got.Description != "Original desc" {
+		t.Errorf("description changed unexpectedly: got %q, want %q", got.Description, "Original desc")
+	}
+
+	// Partial update: only enrichment
+	enriching := db.EnrichmentEnriching
+	agentName := "claude"
+	err = database.UpdateTaskFields(ctx, task.ID, db.TaskFieldUpdate{
+		EnrichmentStatus:    &enriching,
+		EnrichmentAgentName: &agentName,
+	})
+	if err != nil {
+		t.Fatalf("partial update enrichment: %v", err)
+	}
+
+	got, _ = database.GetTask(ctx, task.ID)
+	if got.EnrichmentStatus != db.EnrichmentEnriching {
+		t.Errorf("enrichment_status: got %q, want %q", got.EnrichmentStatus, db.EnrichmentEnriching)
+	}
+	if got.EnrichmentAgentName != "claude" {
+		t.Errorf("enrichment_agent_name: got %q, want %q", got.EnrichmentAgentName, "claude")
+	}
+	// Title should still be the updated value
+	if got.Title != "Updated Title" {
+		t.Errorf("title changed unexpectedly: got %q", got.Title)
+	}
+}
+
+func TestUpdateTaskFieldsNoop(t *testing.T) {
+	database := setupTestDB(t)
+	ctx := context.Background()
+
+	task, _ := database.CreateTask(ctx, "Noop", "desc")
+
+	// Empty update should be a no-op (no error)
+	err := database.UpdateTaskFields(ctx, task.ID, db.TaskFieldUpdate{})
+	if err != nil {
+		t.Fatalf("empty update: %v", err)
+	}
+
+	got, _ := database.GetTask(ctx, task.ID)
+	if got.Title != "Noop" {
+		t.Errorf("title changed on noop: got %q", got.Title)
+	}
+}
+
+func TestUpdateTaskFieldsMultiple(t *testing.T) {
+	database := setupTestDB(t)
+	ctx := context.Background()
+
+	task, _ := database.CreateTask(ctx, "Multi", "desc")
+
+	newTitle := "New Title"
+	newDesc := "New Description"
+	newAssignee := "alice"
+	newBranch := "feat/new"
+	err := database.UpdateTaskFields(ctx, task.ID, db.TaskFieldUpdate{
+		Title:       &newTitle,
+		Description: &newDesc,
+		Assignee:    &newAssignee,
+		BranchName:  &newBranch,
+	})
+	if err != nil {
+		t.Fatalf("multi-field update: %v", err)
+	}
+
+	got, _ := database.GetTask(ctx, task.ID)
+	if got.Title != "New Title" {
+		t.Errorf("title: got %q", got.Title)
+	}
+	if got.Description != "New Description" {
+		t.Errorf("description: got %q", got.Description)
+	}
+	if got.Assignee != "alice" {
+		t.Errorf("assignee: got %q", got.Assignee)
+	}
+	if got.BranchName != "feat/new" {
+		t.Errorf("branch: got %q", got.BranchName)
+	}
+}
+
+func TestCommentsCRUD(t *testing.T) {
+	database := setupTestDB(t)
+	ctx := context.Background()
+
+	task, _ := database.CreateTask(ctx, "Commentable", "")
+
+	c1, err := database.AddComment(ctx, task.ID, "alice", "First comment")
+	if err != nil {
+		t.Fatalf("adding comment: %v", err)
+	}
+	if c1.ID == "" {
+		t.Fatal("expected non-empty comment ID")
+	}
+	if c1.Author != "alice" {
+		t.Errorf("author: got %q, want %q", c1.Author, "alice")
+	}
+
+	database.AddComment(ctx, task.ID, "bob", "Second comment")
+
+	comments, err := database.ListComments(ctx, task.ID)
+	if err != nil {
+		t.Fatalf("listing comments: %v", err)
+	}
+	if len(comments) != 2 {
+		t.Errorf("got %d comments, want 2", len(comments))
+	}
+	// Ordered by created_at
+	if comments[0].Body != "First comment" {
+		t.Errorf("first comment: got %q", comments[0].Body)
+	}
+	if comments[1].Body != "Second comment" {
+		t.Errorf("second comment: got %q", comments[1].Body)
+	}
+}
+
+func TestCommentsCascadeOnTaskDelete(t *testing.T) {
+	database := setupTestDB(t)
+	ctx := context.Background()
+
+	task, _ := database.CreateTask(ctx, "Delete Me", "")
+	database.AddComment(ctx, task.ID, "alice", "Will be deleted")
+
+	if err := database.DeleteTask(ctx, task.ID); err != nil {
+		t.Fatalf("deleting task: %v", err)
+	}
+
+	comments, _ := database.ListComments(ctx, task.ID)
+	if len(comments) != 0 {
+		t.Errorf("after cascade: got %d comments, want 0", len(comments))
+	}
+}
+
 func TestSchemaV2Migration(t *testing.T) {
 	// Create a v1 database manually, then open it with the migrating code
 	dir := t.TempDir()
@@ -334,5 +539,159 @@ func TestSchemaV2Migration(t *testing.T) {
 	got, _ := database.GetTask(ctx, task.ID)
 	if got.AgentStatus != db.AgentCompleted {
 		t.Errorf("completed status not persisted on migrated DB: got %q", got.AgentStatus)
+	}
+}
+
+func TestSchemaV4toV5Migration(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "v4.db")
+
+	conn, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatalf("opening raw db: %v", err)
+	}
+
+	// Create a v4 schema with a task and a comment
+	v4Schema := `
+	PRAGMA foreign_keys = ON;
+
+	CREATE TABLE schema_version (
+		version INTEGER PRIMARY KEY,
+		applied_at TEXT NOT NULL DEFAULT (datetime('now'))
+	);
+	INSERT INTO schema_version (version) VALUES (4);
+
+	CREATE TABLE tasks (
+		id TEXT PRIMARY KEY,
+		title TEXT NOT NULL CHECK(length(title) > 0 AND length(title) <= 500),
+		description TEXT DEFAULT '',
+		status TEXT NOT NULL DEFAULT 'backlog'
+			CHECK(status IN ('backlog','brainstorm','planning','in_progress','review','done')),
+		assignee TEXT DEFAULT '',
+		branch_name TEXT DEFAULT '',
+		pr_url TEXT DEFAULT '',
+		pr_number INTEGER DEFAULT 0,
+		agent_name TEXT DEFAULT '',
+		agent_status TEXT DEFAULT 'idle'
+			CHECK(agent_status IN ('idle','active','completed','error')),
+		agent_started_at TEXT DEFAULT '',
+		agent_spawned_status TEXT DEFAULT '',
+		reset_requested INTEGER DEFAULT 0,
+		skip_permissions INTEGER DEFAULT 0,
+		position INTEGER NOT NULL DEFAULT 0,
+		created_at TEXT NOT NULL,
+		updated_at TEXT NOT NULL
+	);
+	CREATE INDEX idx_tasks_status ON tasks(status);
+	CREATE INDEX idx_tasks_assignee ON tasks(assignee);
+	CREATE UNIQUE INDEX idx_tasks_status_position ON tasks(status, position);
+
+	CREATE TABLE comments (
+		id TEXT PRIMARY KEY,
+		task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+		author TEXT NOT NULL CHECK(length(author) > 0),
+		body TEXT NOT NULL CHECK(length(body) > 0),
+		created_at TEXT NOT NULL
+	);
+	CREATE INDEX idx_comments_task_id ON comments(task_id);
+
+	CREATE TABLE meta (
+		key TEXT PRIMARY KEY,
+		value TEXT NOT NULL
+	);
+
+	INSERT INTO tasks (id, title, description, status, assignee, agent_name, agent_status,
+		skip_permissions, position, created_at, updated_at)
+	VALUES ('v4-task-1', 'V4 Task', 'v4 desc', 'in_progress', 'alice', 'claude', 'active',
+		1, 0, '2026-02-01T00:00:00Z', '2026-02-01T00:00:00Z');
+
+	INSERT INTO comments (id, task_id, author, body, created_at)
+	VALUES ('comment-1', 'v4-task-1', 'alice', 'A v4 comment', '2026-02-01T01:00:00Z');
+	`
+
+	if _, err := conn.Exec(v4Schema); err != nil {
+		t.Fatalf("creating v4 schema: %v", err)
+	}
+	conn.Close()
+
+	// Open with migration code — should auto-migrate to v5
+	database, err := db.Open(dbPath)
+	if err != nil {
+		t.Fatalf("opening database for v5 migration: %v", err)
+	}
+	defer database.Close()
+
+	ctx := context.Background()
+
+	// Verify task survived with all original fields
+	task, err := database.GetTask(ctx, "v4-task-1")
+	if err != nil {
+		t.Fatalf("getting migrated task: %v", err)
+	}
+	if task.Title != "V4 Task" {
+		t.Errorf("title: got %q, want %q", task.Title, "V4 Task")
+	}
+	if task.Status != db.StatusInProgress {
+		t.Errorf("status: got %q, want %q", task.Status, db.StatusInProgress)
+	}
+	if task.Assignee != "alice" {
+		t.Errorf("assignee: got %q, want %q", task.Assignee, "alice")
+	}
+	if !task.SkipPermissions {
+		t.Error("skip_permissions should be true after migration")
+	}
+
+	// Verify new enrichment fields have defaults
+	if task.EnrichmentStatus != db.EnrichmentNone {
+		t.Errorf("enrichment_status: got %q, want empty", task.EnrichmentStatus)
+	}
+	if task.EnrichmentAgentName != "" {
+		t.Errorf("enrichment_agent_name: got %q, want empty", task.EnrichmentAgentName)
+	}
+
+	// Verify comment survived the migration
+	comments, err := database.ListComments(ctx, "v4-task-1")
+	if err != nil {
+		t.Fatalf("listing comments: %v", err)
+	}
+	if len(comments) != 1 {
+		t.Fatalf("got %d comments, want 1", len(comments))
+	}
+	if comments[0].Body != "A v4 comment" {
+		t.Errorf("comment body: got %q, want %q", comments[0].Body, "A v4 comment")
+	}
+
+	// Verify new tables exist: create a dependency
+	t2, err := database.CreateTask(ctx, "V5 New Task", "")
+	if err != nil {
+		t.Fatalf("creating task on v5 db: %v", err)
+	}
+	if err := database.AddDependency(ctx, task.ID, t2.ID); err != nil {
+		t.Fatalf("adding dependency on v5 db: %v", err)
+	}
+	deps, _ := database.ListDependencies(ctx, task.ID)
+	if len(deps) != 1 {
+		t.Errorf("got %d deps, want 1", len(deps))
+	}
+
+	// Verify suggestions table exists
+	sug, err := database.CreateSuggestion(ctx, task.ID, db.SuggestionEnrichment, "claude", "Test", "msg")
+	if err != nil {
+		t.Fatalf("creating suggestion on v5 db: %v", err)
+	}
+	if sug.ID == "" {
+		t.Error("suggestion ID empty")
+	}
+
+	// Verify enrichment can be updated
+	enriching := db.EnrichmentEnriching
+	if err := database.UpdateTaskFields(ctx, task.ID, db.TaskFieldUpdate{
+		EnrichmentStatus: &enriching,
+	}); err != nil {
+		t.Fatalf("updating enrichment on migrated task: %v", err)
+	}
+	got, _ := database.GetTask(ctx, task.ID)
+	if got.EnrichmentStatus != db.EnrichmentEnriching {
+		t.Errorf("enrichment_status after update: got %q", got.EnrichmentStatus)
 	}
 }
