@@ -63,16 +63,35 @@ type App struct {
 	lastTasks []db.Task
 	// cursorFollow stores where to move the cursor after the next task reload.
 	cursorFollow *pendingFocus
+	// Server/tunnel status
+	tunnelURL    string
+	peerCount    int
+	serverActive bool
 }
 
-func NewApp(svc board.Service) App {
-	return App{
+// AppOption configures optional App behavior.
+type AppOption func(*App)
+
+// WithConnectAddr sets the remote server address for status bar display.
+func WithConnectAddr(addr string) AppOption {
+	return func(a *App) {
+		a.tunnelURL = addr
+		a.serverActive = true
+	}
+}
+
+func NewApp(svc board.Service, opts ...AppOption) App {
+	a := App{
 		board:            newKanban(),
 		service:          svc,
 		form:             newTaskForm(),
 		availableRunners: agent.AvailableRunners(),
 		pendingRecons:    make(map[string]pendingRecon),
 	}
+	for _, opt := range opts {
+		opt(&a)
+	}
+	return a
 }
 
 func (a App) Init() tea.Cmd {
@@ -186,6 +205,12 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case agentViewDoneMsg:
 		return a, a.loadTasks()
+
+	case serverStatusMsg:
+		a.tunnelURL = msg.tunnelURL
+		a.peerCount = msg.peerCount
+		a.serverActive = msg.connected
+		return a, nil
 
 	case clearNotificationMsg:
 		if a.notification != nil && time.Now().After(a.notification.expires) {
@@ -525,6 +550,12 @@ func (a App) View() string {
 
 	boardView := a.board.View()
 	statusBar := a.board.statusBar()
+
+	// Append tunnel/connection info to the status bar
+	if a.tunnelURL != "" {
+		serverStatus := serverStatusBar(a.tunnelURL, a.peerCount, a.serverActive, a.width)
+		statusBar = statusBar + serverStatus
+	}
 
 	if a.notification != nil {
 		statusBar = notificationStyle.Render(a.notification.text)

@@ -47,6 +47,13 @@ type agentViewDoneMsg struct{}
 // agentTickMsg triggers periodic reconciliation of agent statuses.
 type agentTickMsg struct{}
 
+// serverStatusMsg carries tunnel/server status updates for the status bar.
+type serverStatusMsg struct {
+	tunnelURL string
+	peerCount int
+	connected bool
+}
+
 // spawnAfterConfirmMsg is emitted after the skip-permissions confirmation,
 // triggering the agent selection flow.
 type spawnAfterConfirmMsg struct {

@@ -153,3 +153,39 @@ func (b kanban) statusBar() string {
 		fmt.Sprintf("  %s | %s | Column %d/%d",
 			task.Title, task.Status, b.focusedCol+1, len(b.columns)))
 }
+
+// serverStatusBar renders tunnel/connection info for the status bar.
+func serverStatusBar(tunnelURL string, peerCount int, connected bool, width int) string {
+	if tunnelURL == "" {
+		return ""
+	}
+
+	var indicator string
+	if connected {
+		indicator = tunnelConnectedStyle.Render("●")
+	} else {
+		indicator = tunnelDisconnectedStyle.Render("●")
+	}
+
+	url := tunnelURL
+	// Truncate long URLs on narrow terminals
+	maxURLLen := width/2 - 20
+	if maxURLLen < 20 {
+		maxURLLen = 20
+	}
+	if len(url) > maxURLLen {
+		url = url[:maxURLLen-3] + "..."
+	}
+
+	peers := fmt.Sprintf("%d peers", peerCount)
+	if peerCount == 1 {
+		peers = "1 peer"
+	}
+
+	return fmt.Sprintf("  %s %s  %s %s",
+		indicator,
+		tunnelURLStyle.Render(url),
+		indicator,
+		peerCountStyle.Render(peers),
+	)
+}

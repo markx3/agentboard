@@ -79,3 +79,8 @@ func verifyToken(ctx context.Context, token string) (string, error) {
 func VerifyTokenString(ctx context.Context, token string) (string, error) {
 	return verifyToken(ctx, token)
 }
+
+// GetToken retrieves the GitHub auth token from `gh auth token`.
+func GetToken(ctx context.Context) (string, error) {
+	return getToken(ctx)
+}

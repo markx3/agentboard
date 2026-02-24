@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"log"
+	"sync/atomic"
 
 	"github.com/marcosfelipeeipper/agentboard/internal/board"
 	"github.com/marcosfelipeeipper/agentboard/internal/db"
@@ -15,12 +16,13 @@ type clientMessage struct {
 }
 
 type Hub struct {
-	clients    map[*Client]bool
-	register   chan *Client
-	unregister chan *Client
-	incoming   chan clientMessage
-	sequencer  *Sequencer
-	service    board.Service
+	clients     map[*Client]bool
+	register    chan *Client
+	unregister  chan *Client
+	incoming    chan clientMessage
+	sequencer   *Sequencer
+	service     board.Service
+	clientCount atomic.Int32
 }
 
 func NewHub(svc board.Service) *Hub {
@@ -46,6 +48,7 @@ func (h *Hub) Run(ctx context.Context) {
 
 		case client := <-h.register:
 			h.clients[client] = true
+			h.clientCount.Store(int32(len(h.clients)))
 			log.Printf("peer joined: %s (%d total)", client.username, len(h.clients))
 
 			// Send full state to new client
@@ -58,6 +61,7 @@ func (h *Hub) Run(ctx context.Context) {
 			if _, ok := h.clients[client]; ok {
 				delete(h.clients, client)
 				close(client.send)
+				h.clientCount.Store(int32(len(h.clients)))
 				log.Printf("peer left: %s (%d remaining)", client.username, len(h.clients))
 				h.broadcastAll(MsgPeerLeave, PeerPayload{Username: client.username})
 			}
@@ -66,6 +70,11 @@ func (h *Hub) Run(ctx context.Context) {
 			h.handleMessage(ctx, cm)
 		}
 	}
+}
+
+// ClientCount returns the current number of connected clients.
+func (h *Hub) ClientCount() int {
+	return int(h.clientCount.Load())
 }
 
 func (h *Hub) handleMessage(ctx context.Context, cm clientMessage) {
