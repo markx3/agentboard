@@ -80,3 +80,78 @@ func (s *LocalService) UnclaimTask(ctx context.Context, id string) error {
 	task.Position = pos
 	return s.db.UpdateTask(ctx, task)
 }
+
+func (s *LocalService) UpdateTaskFields(ctx context.Context, id string, fields db.TaskFieldUpdate) error {
+	return s.db.UpdateTaskFields(ctx, id, fields)
+}
+
+func (s *LocalService) AddComment(ctx context.Context, taskID, author, body string) (*db.Comment, error) {
+	return s.db.AddComment(ctx, taskID, author, body)
+}
+
+func (s *LocalService) ListComments(ctx context.Context, taskID string) ([]db.Comment, error) {
+	return s.db.ListComments(ctx, taskID)
+}
+
+func (s *LocalService) AddDependency(ctx context.Context, taskID, dependsOn string) error {
+	return s.db.AddDependency(ctx, taskID, dependsOn)
+}
+
+func (s *LocalService) RemoveDependency(ctx context.Context, taskID, dependsOn string) error {
+	return s.db.RemoveDependency(ctx, taskID, dependsOn)
+}
+
+func (s *LocalService) ListDependencies(ctx context.Context, taskID string) ([]string, error) {
+	return s.db.ListDependencies(ctx, taskID)
+}
+
+func (s *LocalService) ListAllDependencies(ctx context.Context) (map[string][]string, error) {
+	return s.db.ListAllDependencies(ctx)
+}
+
+func (s *LocalService) CreateSuggestion(ctx context.Context, taskID string, sugType db.SuggestionType, author, title, message string) (*db.Suggestion, error) {
+	return s.db.CreateSuggestion(ctx, taskID, sugType, author, title, message)
+}
+
+func (s *LocalService) GetSuggestion(ctx context.Context, id string) (*db.Suggestion, error) {
+	return s.db.GetSuggestion(ctx, id)
+}
+
+func (s *LocalService) ListPendingSuggestions(ctx context.Context) ([]db.Suggestion, error) {
+	return s.db.ListPendingSuggestions(ctx)
+}
+
+func (s *LocalService) ListSuggestions(ctx context.Context, status db.SuggestionStatus) ([]db.Suggestion, error) {
+	return s.db.ListSuggestions(ctx, status)
+}
+
+func (s *LocalService) AcceptSuggestion(ctx context.Context, id string) error {
+	sug, err := s.db.GetSuggestion(ctx, id)
+	if err != nil {
+		return fmt.Errorf("getting suggestion: %w", err)
+	}
+	if sug.Status != db.SuggestionPending {
+		return fmt.Errorf("suggestion is not pending (status: %s)", sug.Status)
+	}
+
+	// For proposals, create a new task and update suggestion atomically
+	if sug.Type == db.SuggestionProposal {
+		task, err := s.db.CreateTask(ctx, sug.Title, sug.Message)
+		if err != nil {
+			return fmt.Errorf("creating task from proposal: %w", err)
+		}
+		// Set enrichment pending so the new task gets auto-enriched
+		pending := db.EnrichmentPending
+		if err := s.db.UpdateTaskFields(ctx, task.ID, db.TaskFieldUpdate{
+			EnrichmentStatus: &pending,
+		}); err != nil {
+			return fmt.Errorf("setting enrichment on proposed task: %w", err)
+		}
+	}
+
+	return s.db.UpdateSuggestionStatus(ctx, id, db.SuggestionAccepted)
+}
+
+func (s *LocalService) DismissSuggestion(ctx context.Context, id string) error {
+	return s.db.UpdateSuggestionStatus(ctx, id, db.SuggestionDismissed)
+}

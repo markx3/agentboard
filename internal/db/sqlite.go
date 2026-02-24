@@ -139,5 +139,49 @@ func (d *DB) migrate(ctx context.Context) error {
 		}
 	}
 
+	if currentVersion < 5 {
+		if err := d.migrateV4toV5(ctx); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// migrateV4toV5 handles the v5 migration with PRAGMA foreign_keys=OFF
+// executed OUTSIDE the transaction (SQLite silently ignores it inside).
+func (d *DB) migrateV4toV5(ctx context.Context) error {
+	// Disable foreign keys outside the transaction
+	if _, err := d.conn.ExecContext(ctx, "PRAGMA foreign_keys=OFF"); err != nil {
+		return fmt.Errorf("disabling foreign keys for v5 migration: %w", err)
+	}
+
+	tx, err := d.conn.BeginTx(ctx, nil)
+	if err != nil {
+		// Re-enable foreign keys before returning
+		d.conn.ExecContext(ctx, "PRAGMA foreign_keys=ON")
+		return fmt.Errorf("beginning v5 migration transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	if _, err = tx.ExecContext(ctx, migrateV4toV5SQL); err != nil {
+		d.conn.ExecContext(ctx, "PRAGMA foreign_keys=ON")
+		return fmt.Errorf("applying v5 migration: %w", err)
+	}
+	if _, err = tx.ExecContext(ctx,
+		"INSERT OR REPLACE INTO schema_version (version) VALUES (5)"); err != nil {
+		d.conn.ExecContext(ctx, "PRAGMA foreign_keys=ON")
+		return fmt.Errorf("updating schema version to 5: %w", err)
+	}
+	if err = tx.Commit(); err != nil {
+		d.conn.ExecContext(ctx, "PRAGMA foreign_keys=ON")
+		return fmt.Errorf("committing v5 migration: %w", err)
+	}
+
+	// Re-enable foreign keys after migration
+	if _, err := d.conn.ExecContext(ctx, "PRAGMA foreign_keys=ON"); err != nil {
+		return fmt.Errorf("re-enabling foreign keys after v5 migration: %w", err)
+	}
+
 	return nil
 }
