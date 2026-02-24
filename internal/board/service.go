@@ -21,6 +21,5 @@ type Service interface {
 	UpdateAgentActivity(ctx context.Context, id, activity string) error
 	AddDependency(ctx context.Context, taskID, blockerID string) error
 	RemoveDependency(ctx context.Context, taskID, blockerID string) error
-	GetBlockers(ctx context.Context, taskID string) ([]string, error)
 	GetAllDependencies(ctx context.Context) (map[string][]string, error)
 }

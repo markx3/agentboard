@@ -241,26 +241,6 @@ func (d *DB) RemoveDependency(ctx context.Context, taskID, blockerID string) err
 	return nil
 }
 
-// GetBlockers returns the IDs of tasks that block the given task.
-func (d *DB) GetBlockers(ctx context.Context, taskID string) ([]string, error) {
-	rows, err := d.conn.QueryContext(ctx,
-		`SELECT task_id FROM task_dependencies WHERE blocks_id = ?`, taskID)
-	if err != nil {
-		return nil, fmt.Errorf("getting blockers: %w", err)
-	}
-	defer rows.Close()
-
-	var ids []string
-	for rows.Next() {
-		var id string
-		if err := rows.Scan(&id); err != nil {
-			return nil, err
-		}
-		ids = append(ids, id)
-	}
-	return ids, rows.Err()
-}
-
 // GetAllDependencies returns a map of taskID → []blockerIDs for all tasks.
 func (d *DB) GetAllDependencies(ctx context.Context) (map[string][]string, error) {
 	rows, err := d.conn.QueryContext(ctx,
@@ -282,40 +262,44 @@ func (d *DB) GetAllDependencies(ctx context.Context) (map[string][]string, error
 }
 
 // HasCycle checks if adding a dependency (taskID blocked by blockerID) would create a cycle.
+// It loads the full dependency graph in a single query and traverses in-memory.
 func (d *DB) HasCycle(ctx context.Context, taskID, blockerID string) (bool, error) {
-	// DFS from taskID through existing "blocks" relationships.
-	// If we can reach blockerID, adding the reverse edge would form a cycle.
-	visited := make(map[string]bool)
-	return d.dfsReaches(ctx, taskID, blockerID, visited)
-}
-
-func (d *DB) dfsReaches(ctx context.Context, from, target string, visited map[string]bool) (bool, error) {
-	if from == target {
-		return true, nil
-	}
-	if visited[from] {
-		return false, nil
-	}
-	visited[from] = true
-
-	// "from" blocks these tasks — follow the chain
-	rows, err := d.conn.QueryContext(ctx,
-		`SELECT blocks_id FROM task_dependencies WHERE task_id = ?`, from)
+	rows, err := d.conn.QueryContext(ctx, `SELECT task_id, blocks_id FROM task_dependencies`)
 	if err != nil {
-		return false, err
+		return false, fmt.Errorf("loading dependency graph: %w", err)
 	}
 	defer rows.Close()
 
+	// Build adjacency: task_id (blocker) → []blocks_id (tasks it blocks)
+	graph := make(map[string][]string)
 	for rows.Next() {
-		var next string
-		if err := rows.Scan(&next); err != nil {
+		var blocker, blocked string
+		if err := rows.Scan(&blocker, &blocked); err != nil {
 			return false, err
 		}
-		if reached, err := d.dfsReaches(ctx, next, target, visited); err != nil || reached {
-			return reached, err
-		}
+		graph[blocker] = append(graph[blocker], blocked)
 	}
-	return false, rows.Err()
+	if err := rows.Err(); err != nil {
+		return false, err
+	}
+
+	// DFS from taskID through "blocks" edges. If we reach blockerID,
+	// adding the reverse edge (blockerID → taskID) would form a cycle.
+	visited := make(map[string]bool)
+	stack := []string{taskID}
+	for len(stack) > 0 {
+		node := stack[len(stack)-1]
+		stack = stack[:len(stack)-1]
+		if node == blockerID {
+			return true, nil
+		}
+		if visited[node] {
+			continue
+		}
+		visited[node] = true
+		stack = append(stack, graph[node]...)
+	}
+	return false, nil
 }
 
 func (d *DB) NextPosition(ctx context.Context, status TaskStatus) (int, error) {

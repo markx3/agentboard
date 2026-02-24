@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"text/tabwriter"
 
 	"github.com/spf13/cobra"
@@ -111,6 +112,7 @@ func init() {
 
 	taskCreateCmd.Flags().StringVar(&createTitle, "title", "", "task title (required)")
 	taskCreateCmd.Flags().StringVar(&createDesc, "description", "", "task description")
+	taskCreateCmd.Flags().BoolVar(&taskOutputJSON, "json", false, "output as JSON")
 	taskCreateCmd.MarkFlagRequired("title")
 
 	taskGetCmd.Flags().BoolVar(&taskOutputJSON, "json", false, "output as JSON")
@@ -164,6 +166,16 @@ func runTaskList(cmd *cobra.Command, args []string) error {
 			}
 		}
 		tasks = filtered
+	}
+
+	// Populate dependency data
+	deps, depsErr := svc.GetAllDependencies(ctx)
+	if depsErr == nil && deps != nil {
+		for i := range tasks {
+			if blockers, ok := deps[tasks[i].ID]; ok {
+				tasks[i].BlockedBy = blockers
+			}
+		}
 	}
 
 	if taskOutputJSON {
@@ -263,6 +275,14 @@ func runTaskGet(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
+	// Populate dependency data
+	deps, depsErr := svc.GetAllDependencies(context.Background())
+	if depsErr == nil && deps != nil {
+		if blockers, ok := deps[task.ID]; ok {
+			task.BlockedBy = blockers
+		}
+	}
+
 	if taskOutputJSON {
 		return json.NewEncoder(os.Stdout).Encode(task)
 	}
@@ -274,6 +294,17 @@ func runTaskGet(cmd *cobra.Command, args []string) error {
 	fmt.Printf("Agent:       %s (%s)\n", task.AgentName, task.AgentStatus)
 	fmt.Printf("Branch:      %s\n", task.BranchName)
 	fmt.Printf("PR:          %s\n", task.PRUrl)
+	if len(task.BlockedBy) > 0 {
+		var shortIDs []string
+		for _, id := range task.BlockedBy {
+			if len(id) > 8 {
+				shortIDs = append(shortIDs, id[:8])
+			} else {
+				shortIDs = append(shortIDs, id)
+			}
+		}
+		fmt.Printf("Blocked by:  %s\n", strings.Join(shortIDs, ", "))
+	}
 	fmt.Printf("Description: %s\n", task.Description)
 	fmt.Printf("Created:     %s\n", task.CreatedAt.Format("2006-01-02 15:04"))
 	return nil
@@ -380,6 +411,9 @@ func runTaskUpdate(cmd *cobra.Command, args []string) error {
 
 	changed := false
 	if cmd.Flags().Changed("title") {
+		if strings.TrimSpace(updateTitle) == "" {
+			return fmt.Errorf("title cannot be empty")
+		}
 		task.Title = updateTitle
 		changed = true
 	}

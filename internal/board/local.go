@@ -83,10 +83,6 @@ func (s *LocalService) RemoveDependency(ctx context.Context, taskID, blockerID s
 	return s.db.RemoveDependency(ctx, taskID, blockerID)
 }
 
-func (s *LocalService) GetBlockers(ctx context.Context, taskID string) ([]string, error) {
-	return s.db.GetBlockers(ctx, taskID)
-}
-
 func (s *LocalService) GetAllDependencies(ctx context.Context) (map[string][]string, error) {
 	return s.db.GetAllDependencies(ctx)
 }

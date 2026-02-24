@@ -31,6 +31,7 @@ type taskDetail struct {
 	inputs     [4]textinput.Model // title, assignee, branch, pr_url
 	descInput  textarea.Model
 	saveNeeded bool
+	titleEmpty bool // validation flag shown in edit view
 }
 
 func newTaskDetail(task db.Task) taskDetail {
@@ -108,13 +109,19 @@ func (d *taskDetail) nextField() {
 	d.focusField(next)
 }
 
-func (d *taskDetail) applyEdits() {
-	d.task.Title = strings.TrimSpace(d.inputs[0].Value())
+// applyEdits validates and applies edits. Returns false if validation fails.
+func (d *taskDetail) applyEdits() bool {
+	title := strings.TrimSpace(d.inputs[0].Value())
+	if title == "" {
+		return false
+	}
+	d.task.Title = title
 	d.task.Description = strings.TrimSpace(d.descInput.Value())
 	d.task.Assignee = strings.TrimSpace(d.inputs[1].Value())
 	d.task.BranchName = strings.TrimSpace(d.inputs[2].Value())
 	d.task.PRUrl = strings.TrimSpace(d.inputs[3].Value())
 	d.saveNeeded = true
+	return true
 }
 
 func (d taskDetail) Update(msg tea.Msg) (taskDetail, tea.Cmd) {
@@ -129,7 +136,10 @@ func (d taskDetail) Update(msg tea.Msg) (taskDetail, tea.Cmd) {
 			d.nextField()
 			return d, nil
 		case "ctrl+s":
-			d.applyEdits()
+			if !d.applyEdits() {
+				d.titleEmpty = true
+				return d, nil
+			}
 			d.editing = false
 			return d, nil
 		}
@@ -139,6 +149,7 @@ func (d taskDetail) Update(msg tea.Msg) (taskDetail, tea.Cmd) {
 	var cmd tea.Cmd
 	switch d.editField {
 	case editFieldTitle:
+		d.titleEmpty = false // clear validation error on input
 		d.inputs[0], cmd = d.inputs[0].Update(msg)
 	case editFieldDesc:
 		d.descInput, cmd = d.descInput.Update(msg)
@@ -235,7 +246,11 @@ func (d taskDetail) editView() string {
 	lines = append(lines, title, "")
 
 	lines = append(lines, "Title:")
-	lines = append(lines, d.inputs[0].View(), "")
+	lines = append(lines, d.inputs[0].View())
+	if d.titleEmpty {
+		lines = append(lines, agentErrorStyle.Render("  Title cannot be empty"))
+	}
+	lines = append(lines, "")
 
 	lines = append(lines, "Description:")
 	lines = append(lines, d.descInput.View(), "")

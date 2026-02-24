@@ -146,19 +146,15 @@ func (b kanban) View() string {
 }
 
 func (b kanban) summaryBar() string {
-	var agentActive, total, done int
+	var agentActive int
 	statusCounts := make(map[db.TaskStatus]int)
 
 	for _, col := range b.columns {
 		for _, item := range col.list.Items() {
 			if ti, ok := item.(taskItem); ok {
-				total++
 				statusCounts[ti.task.Status]++
 				if ti.task.AgentStatus == db.AgentActive {
 					agentActive++
-				}
-				if ti.task.Status == db.StatusDone {
-					done++
 				}
 			}
 		}
@@ -179,7 +175,7 @@ func (b kanban) summaryBar() string {
 	if len(taskParts) > 0 {
 		parts = append(parts, "Tasks: "+strings.Join(taskParts, ", "))
 	}
-	parts = append(parts, fmt.Sprintf("%d done", done))
+	parts = append(parts, fmt.Sprintf("%d done", statusCounts[db.StatusDone]))
 
 	return summaryBarStyle.Render("  " + strings.Join(parts, " | "))
 }
