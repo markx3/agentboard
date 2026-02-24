@@ -267,6 +267,13 @@ func (a *App) reconcileAgents() []tea.Cmd {
 			continue
 		}
 
+		// Determine baseline: prefer AgentSpawnedStatus (set at spawn time),
+		// fall back to columnAtDetection (set when window death was detected)
+		baseline := db.TaskStatus(freshTask.AgentSpawnedStatus)
+		if baseline == "" {
+			baseline = pending.columnAtDetection
+		}
+
 		if freshTask.ResetRequested {
 			// Agent wants fresh context — mark idle for respawn
 			freshTask.ResetRequested = false
@@ -275,7 +282,7 @@ func (a *App) reconcileAgents() []tea.Cmd {
 			freshTask.AgentSpawnedStatus = ""
 			a.service.UpdateTask(ctx, freshTask)
 			cmds = append(cmds, a.notify("Agent reset requested — ready for respawn"))
-		} else if freshTask.Status != pending.columnAtDetection {
+		} else if freshTask.Status != baseline {
 			// Task moved to a new column — agent completed successfully
 			freshTask.AgentStatus = db.AgentCompleted
 			freshTask.AgentStartedAt = ""
@@ -739,6 +746,11 @@ func (a App) respawnAgent(taskID string, newStatus db.TaskStatus) tea.Cmd {
 			return errMsg{err}
 		}
 
+		// Guard: skip respawn if agent was already spawned for this column
+		if task.AgentSpawnedStatus == string(task.Status) {
+			return notifyMsg{text: "Agent already working on this column — skipping respawn"}
+		}
+
 		// Look up the runner the task was previously using
 		runner := agent.GetRunner(task.AgentName)
 		if runner == nil || !runner.Available() {
@@ -749,6 +761,9 @@ func (a App) respawnAgent(taskID string, newStatus db.TaskStatus) tea.Cmd {
 			a.service.UpdateTask(ctx, task)
 			return notifyMsg{text: fmt.Sprintf("Agent %q no longer available", task.AgentName)}
 		}
+
+		// Deactivate any active ralph loop so the new agent runs once without looping
+		_ = agent.DeactivateRalphLoop(*task)
 
 		// Spawn handles killing the old window and creating a new one
 		if err := agent.Spawn(ctx, a.service, *task, runner); err != nil {

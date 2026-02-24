@@ -4,8 +4,11 @@ package agent
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"github.com/marcosfelipeeipper/agentboard/internal/board"
@@ -35,6 +38,19 @@ func TaskSlug(title string) string {
 // WindowName returns the tmux window name used for polling a task's agent.
 func WindowName(task db.Task) string {
 	return "agent-" + task.ID[:8]
+}
+
+// DeactivateRalphLoop sets active: false in the ralph-loop state file
+// for the given task's worktree. This prevents a respawned agent from
+// inheriting an active loop. No-op if the file does not exist.
+func DeactivateRalphLoop(task db.Task) error {
+	stateFile := filepath.Join(TaskSlug(task.Title), ".claude", "ralph-loop.local.md")
+	data, err := os.ReadFile(stateFile)
+	if err != nil {
+		return nil // No state file = no ralph loop to deactivate
+	}
+	updated := strings.Replace(string(data), "active: true", "active: false", 1)
+	return os.WriteFile(stateFile, []byte(updated), 0644)
 }
 
 // Spawn launches an AI agent in a tmux window for the given task.
@@ -72,6 +88,8 @@ func Spawn(ctx context.Context, svc board.Service, task db.Task, runner AgentRun
 	// Update task in DB
 	task.AgentName = runner.ID()
 	task.AgentStatus = db.AgentActive
+	task.AgentSpawnedStatus = string(task.Status)
+	task.AgentStartedAt = time.Now().UTC().Format(time.RFC3339)
 	if err := svc.UpdateTask(ctx, &task); err != nil {
 		// Best-effort kill the window if DB update fails
 		_ = tmux.KillWindow(winName)
