@@ -83,5 +83,21 @@ func buildCursorPrompt(opts SpawnOpts) string {
 		fmt.Fprintf(&b, "  agentboard task move %s <status>\n", shortID)
 	}
 
+	b.WriteString("\nTASK METADATA:\n")
+	b.WriteString("Update task fields as you work:\n")
+	fmt.Fprintf(&b, "  agentboard task update %s --branch \"<branch-name>\"\n", shortID)
+	fmt.Fprintf(&b, "  agentboard task update %s --pr-url \"<url>\"\n", shortID)
+	fmt.Fprintf(&b, "  agentboard task update %s --assignee \"<name>\"\n", shortID)
+
+	b.WriteString("\nDEPENDENCIES:\n")
+	b.WriteString("Mark task dependencies:\n")
+	fmt.Fprintf(&b, "  agentboard task block %s <blocker-id>   # this task is blocked by another\n", shortID)
+	fmt.Fprintf(&b, "  agentboard task unblock %s <blocker-id> # remove a dependency\n", shortID)
+
+	b.WriteString("\nACTIVITY REPORTING:\n")
+	b.WriteString("Update your activity status so the board shows what you're doing:\n")
+	fmt.Fprintf(&b, "  agentboard agent status %s \"<brief description>\"\n", shortID)
+	b.WriteString("Update when starting each major step (reading code, writing implementation, running tests, creating PR).\n")
+
 	return b.String()
 }

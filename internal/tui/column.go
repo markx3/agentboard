@@ -43,10 +43,14 @@ func (c *column) SetSize(w, h int) {
 	c.list.SetSize(w-2, h-4) // Account for padding (border handled by board)
 }
 
-func (c *column) SetItems(tasks []db.Task) {
+func (c *column) SetItems(tasks []db.Task, deps map[string][]string) {
 	items := make([]list.Item, len(tasks))
 	for i, t := range tasks {
-		items[i] = taskItem{task: t}
+		depCount := 0
+		if deps != nil {
+			depCount = len(deps[t.ID])
+		}
+		items[i] = taskItem{task: t, depCount: depCount}
 	}
 	c.list.SetItems(items)
 }

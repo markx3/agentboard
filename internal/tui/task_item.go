@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/charmbracelet/lipgloss"
@@ -10,28 +11,44 @@ import (
 )
 
 type taskItem struct {
-	task db.Task
+	task     db.Task
+	depCount int
 }
 
 func (t taskItem) Title() string {
-	return t.statusPrefix() + t.task.Title
+	prefix := t.statusPrefix()
+	if len(t.task.BlockedBy) > 0 {
+		prefix = blockedStyle.Render("🔒 ") + prefix
+	}
+	return prefix + t.task.Title
 }
 
 func (t taskItem) Description() string {
-	parts := []string{}
+	// Prefer activity when agent is active
+	if t.task.AgentActivity != "" {
+		activity := t.task.AgentActivity
+		if len(activity) > 30 {
+			activity = activity[:27] + "..."
+		}
+		return "▸ " + activity
+	}
+
+	var parts []string
 	if t.task.Assignee != "" {
 		parts = append(parts, fmt.Sprintf("@%s", t.task.Assignee))
 	}
 	if badge := t.enrichmentBadge(); badge != "" {
 		parts = append(parts, badge)
 	}
+	if t.depCount > 0 {
+		parts = append(parts, fmt.Sprintf("[%d deps]", t.depCount))
+	}
 	if len(parts) == 0 {
 		return ""
 	}
-	return fmt.Sprintf("%s", parts[0])
+	return strings.Join(parts, " ")
 }
 
-// enrichmentBadge returns a short enrichment status indicator.
 func (t taskItem) enrichmentBadge() string {
 	switch t.task.EnrichmentStatus {
 	case db.EnrichmentPending:
@@ -51,8 +68,6 @@ func (t taskItem) FilterValue() string {
 	return t.task.Title
 }
 
-// statusPrefix returns the color-coded status indicator dot.
-// Priority: Active > Done > Completed > Error > Idle.
 func (t taskItem) statusPrefix() string {
 	switch {
 	case t.task.AgentStatus == db.AgentActive:
@@ -77,7 +92,6 @@ func (t taskItem) statusPrefix() string {
 	}
 }
 
-// cardTintStyle returns the background tint style for the task card.
 func (t taskItem) cardTintStyle() lipgloss.Style {
 	switch {
 	case t.task.AgentStatus == db.AgentActive:
@@ -93,14 +107,11 @@ func (t taskItem) cardTintStyle() lipgloss.Style {
 	}
 }
 
-// agentAbbrev returns a short label for the agent type shown in the board view.
 func agentAbbrev(agentName string) string {
 	if r := agent.GetRunner(agentName); r != nil {
 		name := r.Name()
-		// Use first two chars of each word: "Claude Code" → "CC", "Cursor" → "Cu"
 		words := []rune(name)
 		if len(words) >= 2 {
-			// Check for multi-word names
 			for i, ch := range name {
 				if ch == ' ' && i+1 < len(name) {
 					return string([]rune(name)[0:1]) + string([]rune(name)[i+1:i+2])

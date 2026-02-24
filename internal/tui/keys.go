@@ -18,6 +18,8 @@ type keyMap struct {
 	Help       key.Binding
 	Quit       key.Binding
 	Escape     key.Binding
+	Tab        key.Binding
+	Search     key.Binding
 }
 
 var keys = keyMap{
@@ -80,5 +82,13 @@ var keys = keyMap{
 	Escape: key.NewBinding(
 		key.WithKeys("esc"),
 		key.WithHelp("esc", "close/cancel"),
+	),
+	Tab: key.NewBinding(
+		key.WithKeys("tab"),
+		key.WithHelp("tab", "toggle mode"),
+	),
+	Search: key.NewBinding(
+		key.WithKeys("/"),
+		key.WithHelp("/", "search tasks"),
 	),
 }

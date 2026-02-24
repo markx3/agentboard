@@ -6,8 +6,7 @@ import (
 	"github.com/marcosfelipeeipper/agentboard/internal/db"
 )
 
-// Service defines all task operations. The TUI talks only to this interface.
-// LocalService backs it with SQLite; NetworkService (Phase 3) will proxy via WebSocket.
+// Service defines all task operations.
 type Service interface {
 	ListTasks(ctx context.Context) ([]db.Task, error)
 	ListTasksByStatus(ctx context.Context, status db.TaskStatus) ([]db.Task, error)
@@ -19,6 +18,7 @@ type Service interface {
 	DeleteTask(ctx context.Context, id string) error
 	ClaimTask(ctx context.Context, id, assignee string) error
 	UnclaimTask(ctx context.Context, id string) error
+	UpdateAgentActivity(ctx context.Context, id, activity string) error
 
 	// Comments
 	AddComment(ctx context.Context, taskID, author, body string) (*db.Comment, error)

@@ -31,14 +31,12 @@ var (
 			BorderForeground(lipgloss.Color("#e6b450")).
 			Padding(1, 2)
 
-	// Five-color agent status indicators
-	agentDoneStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color("#50fa7b")) // Green
-	agentCompletedStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#8be9fd")) // Cyan/Teal
-	agentActiveStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("#f1fa8c")) // Yellow
-	agentErrorStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("#ff5555")) // Red
-	agentIdleStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color("#888888")) // Gray
+	agentDoneStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color("#50fa7b"))
+	agentCompletedStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#8be9fd"))
+	agentActiveStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("#f1fa8c"))
+	agentErrorStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("#ff5555"))
+	agentIdleStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color("#888888"))
 
-	// Subtle background tints for card items
 	cardDoneBg      = lipgloss.NewStyle().Background(lipgloss.Color("#1a3a2a"))
 	cardCompletedBg = lipgloss.NewStyle().Background(lipgloss.Color("#1a2a3a"))
 	cardActiveBg    = lipgloss.NewStyle().Background(lipgloss.Color("#3a3a1a"))
@@ -63,20 +61,29 @@ var (
 				Foreground(lipgloss.Color("#666666"))
 
 	tunnelConnectedStyle = lipgloss.NewStyle().
-				Foreground(lipgloss.Color("#50fa7b")) // Green
+				Foreground(lipgloss.Color("#50fa7b"))
 
 	tunnelDisconnectedStyle = lipgloss.NewStyle().
-				Foreground(lipgloss.Color("#ff5555")) // Red
+				Foreground(lipgloss.Color("#ff5555"))
 
 	tunnelURLStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#8be9fd")) // Cyan
+			Foreground(lipgloss.Color("#8be9fd"))
 
 	peerCountStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#bd93f9")) // Purple
+			Foreground(lipgloss.Color("#bd93f9"))
 
-	// Enrichment status styles
-	enrichmentPendingStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#888888")) // Gray
-	enrichmentActiveStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("#f1fa8c")) // Yellow
-	enrichmentDoneStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("#50fa7b")) // Green
-	enrichmentErrorStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("#ff5555")) // Red
+	// Enrichment status styles (from HEAD)
+	enrichmentPendingStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#888888"))
+	enrichmentActiveStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("#f1fa8c"))
+	enrichmentDoneStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("#50fa7b"))
+	enrichmentErrorStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("#ff5555"))
+
+	// Board summary bar (from main)
+	summaryBarStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#8be9fd")).
+			Padding(0, 1)
+
+	// Blocked indicator (from main)
+	blockedStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#ff79c6"))
 )

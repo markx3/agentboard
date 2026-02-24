@@ -26,7 +26,7 @@ func scanTask(s scanner) (Task, error) {
 		&t.AgentName, &t.AgentStatus, &t.AgentStartedAt, &t.AgentSpawnedStatus,
 		&resetRequested, &skipPermissions,
 		&t.EnrichmentStatus, &t.EnrichmentAgentName,
-		&t.Position,
+		&t.AgentActivity, &t.Position,
 		&createdAt, &updatedAt); err != nil {
 		return Task{}, err
 	}
@@ -48,7 +48,7 @@ const taskColumns = `id, title, description, status, assignee, branch_name, pr_u
 		        agent_name, agent_status, agent_started_at, agent_spawned_status,
 		        reset_requested, skip_permissions,
 		        enrichment_status, enrichment_agent_name,
-		        position, created_at, updated_at`
+		        agent_activity, position, created_at, updated_at`
 
 func (d *DB) CreateTask(ctx context.Context, title, description string) (*Task, error) {
 	tx, err := d.conn.BeginTx(ctx, nil)
@@ -86,13 +86,15 @@ func (d *DB) CreateTask(ctx context.Context, title, description string) (*Task, 
 	_, err = tx.ExecContext(ctx,
 		`INSERT INTO tasks (id, title, description, status, assignee, branch_name, pr_url, pr_number,
 		 agent_name, agent_status, agent_started_at, agent_spawned_status, reset_requested,
-		 skip_permissions, enrichment_status, enrichment_agent_name, position, created_at, updated_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		 skip_permissions, enrichment_status, enrichment_agent_name, agent_activity,
+		 position, created_at, updated_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		task.ID, task.Title, task.Description, task.Status,
 		task.Assignee, task.BranchName, task.PRUrl, task.PRNumber,
 		task.AgentName, task.AgentStatus, task.AgentStartedAt, task.AgentSpawnedStatus,
 		boolToInt(task.ResetRequested), boolToInt(task.SkipPermissions),
-		task.EnrichmentStatus, task.EnrichmentAgentName, task.Position,
+		task.EnrichmentStatus, task.EnrichmentAgentName, task.AgentActivity,
+		task.Position,
 		task.CreatedAt.Format(time.RFC3339), task.UpdatedAt.Format(time.RFC3339))
 	if err != nil {
 		return nil, fmt.Errorf("inserting task: %w", err)
@@ -159,13 +161,13 @@ func (d *DB) UpdateTask(ctx context.Context, task *Task) error {
 		 pr_url=?, pr_number=?, agent_name=?, agent_status=?, agent_started_at=?,
 		 agent_spawned_status=?, reset_requested=?, skip_permissions=?,
 		 enrichment_status=?, enrichment_agent_name=?,
-		 position=?, updated_at=?
+		 agent_activity=?, position=?, updated_at=?
 		 WHERE id=?`,
 		task.Title, task.Description, task.Status, task.Assignee, task.BranchName,
 		task.PRUrl, task.PRNumber, task.AgentName, task.AgentStatus, task.AgentStartedAt,
 		task.AgentSpawnedStatus, boolToInt(task.ResetRequested), boolToInt(task.SkipPermissions),
 		task.EnrichmentStatus, task.EnrichmentAgentName,
-		task.Position, task.UpdatedAt.Format(time.RFC3339), task.ID)
+		task.AgentActivity, task.Position, task.UpdatedAt.Format(time.RFC3339), task.ID)
 	if err != nil {
 		return fmt.Errorf("updating task: %w", err)
 	}
@@ -231,6 +233,17 @@ func (d *DB) UpdateTaskFields(ctx context.Context, id string, fields TaskFieldUp
 	return nil
 }
 
+// UpdateAgentActivity updates the agent_activity field for a task.
+func (d *DB) UpdateAgentActivity(ctx context.Context, id, activity string) error {
+	_, err := d.conn.ExecContext(ctx,
+		`UPDATE tasks SET agent_activity=?, updated_at=? WHERE id=?`,
+		activity, time.Now().UTC().Format(time.RFC3339), id)
+	if err != nil {
+		return fmt.Errorf("updating agent activity: %w", err)
+	}
+	return nil
+}
+
 func boolToInt(b bool) int {
 	if b {
 		return 1
@@ -276,6 +289,7 @@ func (d *DB) DeleteTask(ctx context.Context, id string) error {
 	return nil
 }
 
+// NextPosition returns the next available position for a given status column.
 func (d *DB) NextPosition(ctx context.Context, status TaskStatus) (int, error) {
 	var maxPos sql.NullInt64
 	err := d.conn.QueryRowContext(ctx,

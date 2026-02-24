@@ -66,9 +66,12 @@ type Task struct {
 	SkipPermissions     bool             `json:"skip_permissions"`
 	EnrichmentStatus    EnrichmentStatus `json:"enrichment_status"`
 	EnrichmentAgentName string           `json:"enrichment_agent_name"`
+	AgentActivity       string           `json:"agent_activity"`
 	Position            int              `json:"position"`
 	CreatedAt           time.Time        `json:"created_at"`
 	UpdatedAt           time.Time        `json:"updated_at"`
+	// BlockedBy is populated at read time, not stored in the tasks table.
+	BlockedBy []string `json:"blocked_by,omitempty"`
 }
 
 // TaskFieldUpdate holds optional field updates. Nil pointer = don't update.

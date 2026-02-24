@@ -2,10 +2,9 @@ package tui
 
 import "github.com/marcosfelipeeipper/agentboard/internal/db"
 
-// TUI-internal messages
-
 type tasksLoadedMsg struct {
 	tasks []db.Task
+	deps  map[string][]string
 }
 
 type taskCreatedMsg struct {
@@ -32,8 +31,6 @@ type notifyMsg struct {
 	text string
 }
 
-// Agent lifecycle messages
-
 type agentSpawnedMsg struct {
 	taskID string
 }
@@ -44,18 +41,21 @@ type agentKilledMsg struct {
 
 type agentViewDoneMsg struct{}
 
-// agentTickMsg triggers periodic reconciliation of agent statuses.
 type agentTickMsg struct{}
 
-// serverStatusMsg carries tunnel/server status updates for the status bar.
 type serverStatusMsg struct {
 	tunnelURL string
 	peerCount int
 	connected bool
 }
 
-// spawnAfterConfirmMsg is emitted after the skip-permissions confirmation,
-// triggering the agent selection flow.
 type spawnAfterConfirmMsg struct {
 	task db.Task
 }
+
+// taskSavedMsg is emitted after a task is saved in edit mode.
+type taskSavedMsg struct {
+	task db.Task
+}
+
+type clearNotificationMsg struct{}

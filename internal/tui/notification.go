@@ -11,8 +11,6 @@ type notification struct {
 	expires time.Time
 }
 
-type clearNotificationMsg struct{}
-
 func scheduleNotificationClear(d time.Duration) tea.Cmd {
 	return tea.Tick(d, func(time.Time) tea.Msg {
 		return clearNotificationMsg{}

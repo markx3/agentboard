@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"text/tabwriter"
 
 	"github.com/spf13/cobra"
@@ -147,6 +148,9 @@ var (
 	// task update flags
 	updateTitle            string
 	updateDescription      string
+	updateAssignee         string
+	updateBranch           string
+	updatePRUrl            string
 	updateAddDep           string
 	updateRemoveDep        string
 	updateEnrichmentStatus string
@@ -186,6 +190,9 @@ func init() {
 	// task update flags
 	taskUpdateCmd.Flags().StringVar(&updateTitle, "title", "", "update task title")
 	taskUpdateCmd.Flags().StringVar(&updateDescription, "description", "", "update task description")
+	taskUpdateCmd.Flags().StringVar(&updateAssignee, "assignee", "", "update assignee")
+	taskUpdateCmd.Flags().StringVar(&updateBranch, "branch", "", "update branch name")
+	taskUpdateCmd.Flags().StringVar(&updatePRUrl, "pr-url", "", "update PR URL")
 	taskUpdateCmd.Flags().StringVar(&updateAddDep, "add-dep", "", "add dependency (task ID prefix)")
 	taskUpdateCmd.Flags().StringVar(&updateRemoveDep, "remove-dep", "", "remove dependency (task ID prefix)")
 	taskUpdateCmd.Flags().StringVar(&updateEnrichmentStatus, "enrichment-status", "", "set enrichment status")
@@ -259,6 +266,16 @@ func runTaskList(cmd *cobra.Command, args []string) error {
 			}
 		}
 		tasks = filtered
+	}
+
+	// Populate dependency data
+	deps, depsErr := svc.ListAllDependencies(ctx)
+	if depsErr == nil && deps != nil {
+		for i := range tasks {
+			if blockers, ok := deps[tasks[i].ID]; ok {
+				tasks[i].BlockedBy = blockers
+			}
+		}
 	}
 
 	if taskOutputJSON {
@@ -386,6 +403,14 @@ func runTaskGet(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
+	// Populate dependency data (blocked-by)
+	allDeps, depsErr := svc.ListAllDependencies(ctx)
+	if depsErr == nil && allDeps != nil {
+		if blockers, ok := allDeps[task.ID]; ok {
+			task.BlockedBy = blockers
+		}
+	}
+
 	if taskOutputJSON {
 		// Include dependencies and comments in JSON output
 		deps, _ := svc.ListDependencies(ctx, task.ID)
@@ -413,6 +438,17 @@ func runTaskGet(cmd *cobra.Command, args []string) error {
 	fmt.Printf("PR:          %s\n", task.PRUrl)
 	if task.EnrichmentStatus != "" {
 		fmt.Printf("Enrichment:  %s\n", task.EnrichmentStatus)
+	}
+	if len(task.BlockedBy) > 0 {
+		var shortIDs []string
+		for _, id := range task.BlockedBy {
+			if len(id) > 8 {
+				shortIDs = append(shortIDs, id[:8])
+			} else {
+				shortIDs = append(shortIDs, id)
+			}
+		}
+		fmt.Printf("Blocked by:  %s\n", strings.Join(shortIDs, ", "))
 	}
 	fmt.Printf("Description: %s\n", task.Description)
 	fmt.Printf("Created:     %s\n", task.CreatedAt.Format("2006-01-02 15:04"))
@@ -562,10 +598,22 @@ func runTaskUpdate(cmd *cobra.Command, args []string) error {
 	// Build partial update from explicitly-set flags
 	var update db.TaskFieldUpdate
 	if cmd.Flags().Changed("title") {
+		if strings.TrimSpace(updateTitle) == "" {
+			return fmt.Errorf("title cannot be empty")
+		}
 		update.Title = &updateTitle
 	}
 	if cmd.Flags().Changed("description") {
 		update.Description = &updateDescription
+	}
+	if cmd.Flags().Changed("assignee") {
+		update.Assignee = &updateAssignee
+	}
+	if cmd.Flags().Changed("branch") {
+		update.BranchName = &updateBranch
+	}
+	if cmd.Flags().Changed("pr-url") {
+		update.PRUrl = &updatePRUrl
 	}
 	if cmd.Flags().Changed("enrichment-status") {
 		es := db.EnrichmentStatus(updateEnrichmentStatus)
