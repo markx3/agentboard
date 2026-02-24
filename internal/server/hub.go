@@ -166,6 +166,75 @@ func (h *Hub) handleMessage(ctx context.Context, cm clientMessage) {
 		msg.Seq = seq
 		h.broadcastAllRaw(msg)
 
+	case MsgTaskUpdate:
+		var p TaskUpdatePayload
+		if err := json.Unmarshal(msg.Payload, &p); err != nil {
+			return
+		}
+		if p.TaskID == "" {
+			h.sendReject(cm.client, "task_id is required")
+			return
+		}
+		fields := db.TaskFieldUpdate{
+			Title:       p.Title,
+			Description: p.Description,
+		}
+		if p.Title != nil && (len(*p.Title) == 0 || len(*p.Title) > 500) {
+			h.sendReject(cm.client, "title must be 1-500 characters")
+			return
+		}
+		if p.Description != nil && len(*p.Description) > 10000 {
+			h.sendReject(cm.client, "description must be under 10000 characters")
+			return
+		}
+		if err := h.service.UpdateTaskFields(ctx, p.TaskID, fields); err != nil {
+			h.sendReject(cm.client, err.Error())
+			return
+		}
+		// Broadcast the updated task
+		task, err := h.service.GetTask(ctx, p.TaskID)
+		if err != nil {
+			log.Printf("failed to get updated task: %v", err)
+			return
+		}
+		payload, err := safeMarshal(task)
+		if err != nil {
+			log.Printf("failed to marshal updated task: %v", err)
+			return
+		}
+		seq := h.sequencer.Next()
+		msg.Seq = seq
+		msg.Payload = payload
+		h.broadcastAllRaw(msg)
+
+	case MsgTaskComment:
+		var p TaskCommentPayload
+		if err := json.Unmarshal(msg.Payload, &p); err != nil {
+			return
+		}
+		if p.TaskID == "" || p.Author == "" || p.Body == "" {
+			h.sendReject(cm.client, "task_id, author, and body are required")
+			return
+		}
+		if len(p.Body) > 10000 {
+			h.sendReject(cm.client, "comment body must be under 10000 characters")
+			return
+		}
+		comment, err := h.service.AddComment(ctx, p.TaskID, p.Author, p.Body)
+		if err != nil {
+			h.sendReject(cm.client, err.Error())
+			return
+		}
+		payload, err := safeMarshal(comment)
+		if err != nil {
+			log.Printf("failed to marshal comment: %v", err)
+			return
+		}
+		seq := h.sequencer.Next()
+		msg.Seq = seq
+		msg.Payload = payload
+		h.broadcastAllRaw(msg)
+
 	case MsgPing:
 		ack, _ := json.Marshal(Message{Type: MsgPong, Sender: "server"})
 		cm.client.send <- ack
