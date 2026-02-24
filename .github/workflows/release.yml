@@ -1,0 +1,66 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v[0-9]*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - goos: darwin
+            goarch: amd64
+          - goos: darwin
+            goarch: arm64
+          - goos: linux
+            goarch: amd64
+          - goos: linux
+            goarch: arm64
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Build
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: "0"
+        run: |
+          go build -ldflags "-X github.com/marcosfelipeeipper/agentboard/internal/cli.Version=${{ github.ref_name }}" \
+            -o agentboard ./cmd/agentboard
+
+      - name: Archive
+        run: tar -czf agentboard-${{ matrix.goos }}-${{ matrix.goarch }}.tar.gz agentboard
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: agentboard-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: agentboard-${{ matrix.goos }}-${{ matrix.goarch }}.tar.gz
+
+  release:
+    needs: [build]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          merge-multiple: true
+
+      - name: Generate checksums
+        run: sha256sum agentboard-*.tar.gz > checksums.txt
+
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            agentboard-*.tar.gz
+            checksums.txt
+          generate_release_notes: true
