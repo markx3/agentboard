@@ -24,9 +24,27 @@ func init() {
 	rootCmd.AddCommand(statusCmd)
 }
 
+type agentInfo struct {
+	TaskID    string `json:"task_id"`
+	TaskTitle string `json:"task_title"`
+	Agent     string `json:"agent"`
+	Status    string `json:"agent_status"`
+	Column    string `json:"column"`
+}
+
+type enrichmentInfo struct {
+	TaskID    string `json:"task_id"`
+	TaskTitle string `json:"task_title"`
+	Status    string `json:"enrichment_status"`
+	Agent     string `json:"enrichment_agent,omitempty"`
+}
+
 type boardSummary struct {
-	Columns map[string]int `json:"columns"`
-	Total   int            `json:"total"`
+	Columns            map[string]int   `json:"columns"`
+	Total              int              `json:"total"`
+	Agents             []agentInfo      `json:"agents,omitempty"`
+	Enrichments        []enrichmentInfo `json:"enrichments,omitempty"`
+	PendingSuggestions int              `json:"pending_suggestions"`
 }
 
 func runStatus(cmd *cobra.Command, args []string) error {
@@ -43,8 +61,36 @@ func runStatus(cmd *cobra.Command, args []string) error {
 	}
 
 	counts := make(map[string]int)
+	var agents []agentInfo
+	var enrichments []enrichmentInfo
+
 	for _, t := range tasks {
 		counts[string(t.Status)]++
+
+		if t.AgentStatus == db.AgentActive {
+			agents = append(agents, agentInfo{
+				TaskID:    t.ID[:8],
+				TaskTitle: t.Title,
+				Agent:     t.AgentName,
+				Status:    string(t.AgentStatus),
+				Column:    string(t.Status),
+			})
+		}
+
+		if t.EnrichmentStatus != "" && t.EnrichmentStatus != db.EnrichmentNone {
+			enrichments = append(enrichments, enrichmentInfo{
+				TaskID:    t.ID[:8],
+				TaskTitle: t.Title,
+				Status:    string(t.EnrichmentStatus),
+				Agent:     t.EnrichmentAgentName,
+			})
+		}
+	}
+
+	pendingSuggestions := 0
+	suggestions, sugErr := svc.ListPendingSuggestions(ctx)
+	if sugErr == nil {
+		pendingSuggestions = len(suggestions)
 	}
 
 	summary := boardSummary{
@@ -56,7 +102,10 @@ func runStatus(cmd *cobra.Command, args []string) error {
 			string(db.StatusReview):     counts[string(db.StatusReview)],
 			string(db.StatusDone):       counts[string(db.StatusDone)],
 		},
-		Total: len(tasks),
+		Total:              len(tasks),
+		Agents:             agents,
+		Enrichments:        enrichments,
+		PendingSuggestions: pendingSuggestions,
 	}
 
 	if statusJSON {
@@ -73,5 +122,17 @@ func runStatus(cmd *cobra.Command, args []string) error {
 	fmt.Printf("Done:        %d\n", summary.Columns[string(db.StatusDone)])
 	fmt.Printf("─────────────────\n")
 	fmt.Printf("Total:       %d\n", summary.Total)
+
+	if len(agents) > 0 {
+		fmt.Printf("\nActive Agents:\n")
+		for _, a := range agents {
+			fmt.Printf("  %s: %s (%s) in %s\n", a.TaskID, a.Agent, a.Status, a.Column)
+		}
+	}
+
+	if pendingSuggestions > 0 {
+		fmt.Printf("\nPending Suggestions: %d\n", pendingSuggestions)
+	}
+
 	return nil
 }

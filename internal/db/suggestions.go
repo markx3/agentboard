@@ -2,6 +2,7 @@ package db
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"log"
 	"time"
@@ -22,10 +23,17 @@ func (d *DB) CreateSuggestion(ctx context.Context, taskID string, sugType Sugges
 		CreatedAt: now,
 	}
 
+	// Pass NULL for empty task_id to satisfy foreign key constraint.
+	// Proposals don't reference an existing task.
+	var taskIDParam interface{} = s.TaskID
+	if s.TaskID == "" {
+		taskIDParam = nil
+	}
+
 	_, err := d.conn.ExecContext(ctx,
 		`INSERT INTO suggestions (id, task_id, type, author, title, message, status, created_at)
 		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-		s.ID, s.TaskID, s.Type, s.Author, s.Title, s.Message, s.Status,
+		s.ID, taskIDParam, s.Type, s.Author, s.Title, s.Message, s.Status,
 		s.CreatedAt.Format(time.RFC3339))
 	if err != nil {
 		return nil, fmt.Errorf("creating suggestion: %w", err)
@@ -59,9 +67,11 @@ func (d *DB) GetSuggestion(ctx context.Context, id string) (*Suggestion, error) 
 
 	var s Suggestion
 	var createdAt string
-	if err := row.Scan(&s.ID, &s.TaskID, &s.Type, &s.Author, &s.Title, &s.Message, &s.Status, &createdAt); err != nil {
+	var taskID sql.NullString
+	if err := row.Scan(&s.ID, &taskID, &s.Type, &s.Author, &s.Title, &s.Message, &s.Status, &createdAt); err != nil {
 		return nil, fmt.Errorf("getting suggestion: %w", err)
 	}
+	s.TaskID = taskID.String
 	var parseErr error
 	s.CreatedAt, parseErr = time.Parse(time.RFC3339, createdAt)
 	if parseErr != nil {
@@ -95,9 +105,11 @@ func scanSuggestions(rows interface{ Next() bool; Scan(...interface{}) error; Er
 	for rows.Next() {
 		var s Suggestion
 		var createdAt string
-		if err := rows.Scan(&s.ID, &s.TaskID, &s.Type, &s.Author, &s.Title, &s.Message, &s.Status, &createdAt); err != nil {
+		var taskID sql.NullString
+		if err := rows.Scan(&s.ID, &taskID, &s.Type, &s.Author, &s.Title, &s.Message, &s.Status, &createdAt); err != nil {
 			return nil, fmt.Errorf("scanning suggestion: %w", err)
 		}
+		s.TaskID = taskID.String
 		var parseErr error
 		s.CreatedAt, parseErr = time.Parse(time.RFC3339, createdAt)
 		if parseErr != nil {
