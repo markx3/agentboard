@@ -18,4 +18,5 @@ type Service interface {
 	DeleteTask(ctx context.Context, id string) error
 	ClaimTask(ctx context.Context, id, assignee string) error
 	UnclaimTask(ctx context.Context, id string) error
+	UpdateAgentActivity(ctx context.Context, id, activity string) error
 }

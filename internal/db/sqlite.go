@@ -139,5 +139,24 @@ func (d *DB) migrate(ctx context.Context) error {
 		}
 	}
 
+	if currentVersion < 5 {
+		tx, txErr := d.conn.BeginTx(ctx, nil)
+		if txErr != nil {
+			return fmt.Errorf("beginning v5 migration transaction: %w", txErr)
+		}
+		defer tx.Rollback()
+
+		if _, txErr = tx.ExecContext(ctx, migrateV4toV5); txErr != nil {
+			return fmt.Errorf("applying v5 migration: %w", txErr)
+		}
+		if _, txErr = tx.ExecContext(ctx,
+			"INSERT OR REPLACE INTO schema_version (version) VALUES (5)"); txErr != nil {
+			return fmt.Errorf("updating schema version to 5: %w", txErr)
+		}
+		if txErr = tx.Commit(); txErr != nil {
+			return fmt.Errorf("committing v5 migration: %w", txErr)
+		}
+	}
+
 	return nil
 }

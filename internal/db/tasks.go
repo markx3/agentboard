@@ -23,7 +23,7 @@ func scanTask(s scanner) (Task, error) {
 		&t.ID, &t.Title, &t.Description, &t.Status,
 		&t.Assignee, &t.BranchName, &t.PRUrl, &t.PRNumber,
 		&t.AgentName, &t.AgentStatus, &t.AgentStartedAt, &t.AgentSpawnedStatus,
-		&resetRequested, &skipPermissions, &t.Position,
+		&resetRequested, &skipPermissions, &t.AgentActivity, &t.Position,
 		&createdAt, &updatedAt); err != nil {
 		return Task{}, err
 	}
@@ -43,7 +43,7 @@ func scanTask(s scanner) (Task, error) {
 
 const taskColumns = `id, title, description, status, assignee, branch_name, pr_url, pr_number,
 		        agent_name, agent_status, agent_started_at, agent_spawned_status,
-		        reset_requested, skip_permissions, position, created_at, updated_at`
+		        reset_requested, skip_permissions, agent_activity, position, created_at, updated_at`
 
 func (d *DB) CreateTask(ctx context.Context, title, description string) (*Task, error) {
 	tx, err := d.conn.BeginTx(ctx, nil)
@@ -81,12 +81,12 @@ func (d *DB) CreateTask(ctx context.Context, title, description string) (*Task, 
 	_, err = tx.ExecContext(ctx,
 		`INSERT INTO tasks (id, title, description, status, assignee, branch_name, pr_url, pr_number,
 		 agent_name, agent_status, agent_started_at, agent_spawned_status, reset_requested,
-		 skip_permissions, position, created_at, updated_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		 skip_permissions, agent_activity, position, created_at, updated_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		task.ID, task.Title, task.Description, task.Status,
 		task.Assignee, task.BranchName, task.PRUrl, task.PRNumber,
 		task.AgentName, task.AgentStatus, task.AgentStartedAt, task.AgentSpawnedStatus,
-		boolToInt(task.ResetRequested), boolToInt(task.SkipPermissions), task.Position,
+		boolToInt(task.ResetRequested), boolToInt(task.SkipPermissions), task.AgentActivity, task.Position,
 		task.CreatedAt.Format(time.RFC3339), task.UpdatedAt.Format(time.RFC3339))
 	if err != nil {
 		return nil, fmt.Errorf("inserting task: %w", err)
@@ -151,14 +151,24 @@ func (d *DB) UpdateTask(ctx context.Context, task *Task) error {
 	_, err := d.conn.ExecContext(ctx,
 		`UPDATE tasks SET title=?, description=?, status=?, assignee=?, branch_name=?,
 		 pr_url=?, pr_number=?, agent_name=?, agent_status=?, agent_started_at=?,
-		 agent_spawned_status=?, reset_requested=?, skip_permissions=?, position=?, updated_at=?
+		 agent_spawned_status=?, reset_requested=?, skip_permissions=?, agent_activity=?, position=?, updated_at=?
 		 WHERE id=?`,
 		task.Title, task.Description, task.Status, task.Assignee, task.BranchName,
 		task.PRUrl, task.PRNumber, task.AgentName, task.AgentStatus, task.AgentStartedAt,
 		task.AgentSpawnedStatus, boolToInt(task.ResetRequested), boolToInt(task.SkipPermissions),
-		task.Position, task.UpdatedAt.Format(time.RFC3339), task.ID)
+		task.AgentActivity, task.Position, task.UpdatedAt.Format(time.RFC3339), task.ID)
 	if err != nil {
 		return fmt.Errorf("updating task: %w", err)
+	}
+	return nil
+}
+
+func (d *DB) UpdateAgentActivity(ctx context.Context, id, activity string) error {
+	_, err := d.conn.ExecContext(ctx,
+		`UPDATE tasks SET agent_activity=?, updated_at=? WHERE id=?`,
+		activity, time.Now().UTC().Format(time.RFC3339), id)
+	if err != nil {
+		return fmt.Errorf("updating agent activity: %w", err)
 	}
 	return nil
 }

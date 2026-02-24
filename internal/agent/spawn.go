@@ -108,6 +108,7 @@ func Kill(ctx context.Context, svc board.Service, task db.Task) error {
 	_ = tmux.KillWindow(winName)
 
 	task.AgentStatus = db.AgentIdle
+	task.AgentActivity = ""
 	if err := svc.UpdateTask(ctx, &task); err != nil {
 		return fmt.Errorf("updating task: %w", err)
 	}

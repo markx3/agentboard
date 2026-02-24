@@ -62,6 +62,9 @@ func (d taskDetail) View() string {
 		if t.SkipPermissions && t.AgentStatus == db.AgentActive {
 			lines = append(lines, agentActiveStyle.Render("Perms:   skipped"))
 		}
+		if t.AgentActivity != "" {
+			lines = append(lines, fmt.Sprintf("Activity: %s", t.AgentActivity))
+		}
 	}
 
 	if t.BranchName != "" {

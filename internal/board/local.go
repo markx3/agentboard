@@ -63,6 +63,10 @@ func (s *LocalService) ClaimTask(ctx context.Context, id, assignee string) error
 	return s.db.UpdateTask(ctx, task)
 }
 
+func (s *LocalService) UpdateAgentActivity(ctx context.Context, id, activity string) error {
+	return s.db.UpdateAgentActivity(ctx, id, activity)
+}
+
 func (s *LocalService) UnclaimTask(ctx context.Context, id string) error {
 	task, err := s.db.GetTask(ctx, id)
 	if err != nil {

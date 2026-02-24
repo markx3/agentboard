@@ -18,6 +18,14 @@ func (t taskItem) Title() string {
 }
 
 func (t taskItem) Description() string {
+	// Prefer activity when agent is active; otherwise show assignee
+	if t.task.AgentActivity != "" {
+		activity := t.task.AgentActivity
+		if len(activity) > 30 {
+			activity = activity[:27] + "..."
+		}
+		return "▸ " + activity
+	}
 	if t.task.Assignee != "" {
 		return fmt.Sprintf("@%s", t.task.Assignee)
 	}

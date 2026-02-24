@@ -73,6 +73,11 @@ func buildClaudeSystemPrompt(opts SpawnOpts) string {
 		fmt.Fprintf(&b, "  agentboard task move %s <status>\n", shortID)
 	}
 
+	b.WriteString("\nACTIVITY REPORTING:\n")
+	b.WriteString("Update your activity status so the board shows what you're doing:\n")
+	fmt.Fprintf(&b, "  agentboard agent status %s \"<brief description>\"\n", shortID)
+	b.WriteString("Update when starting each major step (reading code, writing implementation, running tests, creating PR).\n")
+
 	return b.String()
 }
 

@@ -305,6 +305,7 @@ func (a *App) reconcileAgents() []tea.Cmd {
 			freshTask.AgentStatus = db.AgentIdle
 			freshTask.AgentStartedAt = ""
 			freshTask.AgentSpawnedStatus = ""
+			freshTask.AgentActivity = ""
 			a.service.UpdateTask(ctx, freshTask)
 			cmds = append(cmds, a.notify("Agent reset requested — ready for respawn"))
 		} else if freshTask.Status != baseline {
@@ -312,12 +313,14 @@ func (a *App) reconcileAgents() []tea.Cmd {
 			freshTask.AgentStatus = db.AgentCompleted
 			freshTask.AgentStartedAt = ""
 			freshTask.AgentSpawnedStatus = ""
+			freshTask.AgentActivity = ""
 			a.service.UpdateTask(ctx, freshTask)
 		} else {
 			// Task still in same column — agent crashed/failed
 			freshTask.AgentStatus = db.AgentError
 			freshTask.AgentStartedAt = ""
 			freshTask.AgentSpawnedStatus = ""
+			freshTask.AgentActivity = ""
 			a.service.UpdateTask(ctx, freshTask)
 		}
 	}
