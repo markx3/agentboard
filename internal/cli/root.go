@@ -15,11 +15,15 @@ import (
 
 var connectAddr string
 
+// Version is set at build time via ldflags.
+var Version = "dev"
+
 var rootCmd = &cobra.Command{
-	Use:   "agentboard",
-	Short: "Collaborative agentic task management TUI",
-	Long:  "A terminal-based collaborative Kanban board for managing agentic coding tasks across a team.",
-	RunE:  runBoard,
+	Use:     "agentboard",
+	Short:   "Collaborative agentic task management TUI",
+	Long:    "A terminal-based collaborative Kanban board for managing agentic coding tasks across a team.",
+	Version: Version,
+	RunE:    runBoard,
 }
 
 func init() {

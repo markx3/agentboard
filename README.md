@@ -13,7 +13,6 @@ Real-time collaborative Kanban board for AI coding agents. Terminal-native. Agen
 
 | Prerequisite | Version | Purpose |
 |---|---|---|
-| [Go](https://go.dev/) | 1.25.0+ | Build and install |
 | [tmux](https://github.com/tmux/tmux) | 3.0+ | Agent session management |
 | [gh CLI](https://cli.github.com/) | 2.0+ | GitHub authentication |
 | AI CLI tool | any | Claude Code, Cursor, Antigravity, etc. |
@@ -22,8 +21,24 @@ Real-time collaborative Kanban board for AI coding agents. Terminal-native. Agen
 
 ## Installation
 
+### Quick install (recommended)
+
 ```bash
-# Install via go install
+curl -fsSL https://raw.githubusercontent.com/markx3/agentboard/main/install.sh | bash
+```
+
+Or if you prefer to inspect the script first:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/markx3/agentboard/main/install.sh -o install.sh
+less install.sh
+bash install.sh
+```
+
+### Other methods
+
+```bash
+# Via go install (requires Go 1.25+)
 go install github.com/marcosfelipeeipper/agentboard/cmd/agentboard@latest
 
 # Or build from source
