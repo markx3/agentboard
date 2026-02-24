@@ -218,6 +218,106 @@ func (d *DB) DeleteTask(ctx context.Context, id string) error {
 	return nil
 }
 
+// AddDependency records that taskID is blocked by blockerID.
+func (d *DB) AddDependency(ctx context.Context, taskID, blockerID string) error {
+	now := time.Now().UTC().Format(time.RFC3339)
+	_, err := d.conn.ExecContext(ctx,
+		`INSERT OR IGNORE INTO task_dependencies (task_id, blocks_id, created_at) VALUES (?, ?, ?)`,
+		blockerID, taskID, now)
+	if err != nil {
+		return fmt.Errorf("adding dependency: %w", err)
+	}
+	return nil
+}
+
+// RemoveDependency removes the dependency where taskID is blocked by blockerID.
+func (d *DB) RemoveDependency(ctx context.Context, taskID, blockerID string) error {
+	_, err := d.conn.ExecContext(ctx,
+		`DELETE FROM task_dependencies WHERE task_id = ? AND blocks_id = ?`,
+		blockerID, taskID)
+	if err != nil {
+		return fmt.Errorf("removing dependency: %w", err)
+	}
+	return nil
+}
+
+// GetBlockers returns the IDs of tasks that block the given task.
+func (d *DB) GetBlockers(ctx context.Context, taskID string) ([]string, error) {
+	rows, err := d.conn.QueryContext(ctx,
+		`SELECT task_id FROM task_dependencies WHERE blocks_id = ?`, taskID)
+	if err != nil {
+		return nil, fmt.Errorf("getting blockers: %w", err)
+	}
+	defer rows.Close()
+
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
+}
+
+// GetAllDependencies returns a map of taskID → []blockerIDs for all tasks.
+func (d *DB) GetAllDependencies(ctx context.Context) (map[string][]string, error) {
+	rows, err := d.conn.QueryContext(ctx,
+		`SELECT blocks_id, task_id FROM task_dependencies`)
+	if err != nil {
+		return nil, fmt.Errorf("getting all dependencies: %w", err)
+	}
+	defer rows.Close()
+
+	deps := make(map[string][]string)
+	for rows.Next() {
+		var blockedID, blockerID string
+		if err := rows.Scan(&blockedID, &blockerID); err != nil {
+			return nil, err
+		}
+		deps[blockedID] = append(deps[blockedID], blockerID)
+	}
+	return deps, rows.Err()
+}
+
+// HasCycle checks if adding a dependency (taskID blocked by blockerID) would create a cycle.
+func (d *DB) HasCycle(ctx context.Context, taskID, blockerID string) (bool, error) {
+	// DFS from taskID through existing "blocks" relationships.
+	// If we can reach blockerID, adding the reverse edge would form a cycle.
+	visited := make(map[string]bool)
+	return d.dfsReaches(ctx, taskID, blockerID, visited)
+}
+
+func (d *DB) dfsReaches(ctx context.Context, from, target string, visited map[string]bool) (bool, error) {
+	if from == target {
+		return true, nil
+	}
+	if visited[from] {
+		return false, nil
+	}
+	visited[from] = true
+
+	// "from" blocks these tasks — follow the chain
+	rows, err := d.conn.QueryContext(ctx,
+		`SELECT blocks_id FROM task_dependencies WHERE task_id = ?`, from)
+	if err != nil {
+		return false, err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var next string
+		if err := rows.Scan(&next); err != nil {
+			return false, err
+		}
+		if reached, err := d.dfsReaches(ctx, next, target, visited); err != nil || reached {
+			return reached, err
+		}
+	}
+	return false, rows.Err()
+}
+
 func (d *DB) NextPosition(ctx context.Context, status TaskStatus) (int, error) {
 	var maxPos sql.NullInt64
 	err := d.conn.QueryRowContext(ctx,

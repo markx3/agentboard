@@ -3,9 +3,11 @@ package tui
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/charmbracelet/bubbles/key"
+	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/marcosfelipeeipper/agentboard/internal/agent"
@@ -78,6 +80,10 @@ type App struct {
 	serverActive bool
 	// prevAgentStates tracks the last known agent status per task ID for notifications.
 	prevAgentStates map[string]db.AgentStatus
+	// Search state
+	searching   bool
+	searchInput textinput.Model
+	searchQuery string
 }
 
 // AppOption configures optional App behavior.
@@ -92,6 +98,10 @@ func WithConnectAddr(addr string) AppOption {
 }
 
 func NewApp(svc board.Service, opts ...AppOption) App {
+	si := textinput.New()
+	si.Prompt = "/ "
+	si.Placeholder = "search tasks..."
+	si.CharLimit = 100
 	a := App{
 		board:            newKanban(),
 		service:          svc,
@@ -99,6 +109,7 @@ func NewApp(svc board.Service, opts ...AppOption) App {
 		availableRunners: agent.AvailableRunners(),
 		pendingRecons:    make(map[string]pendingRecon),
 		prevAgentStates:  make(map[string]db.AgentStatus),
+		searchInput:      si,
 	}
 	for _, opt := range opts {
 		opt(&a)
@@ -112,9 +123,19 @@ func (a App) Init() tea.Cmd {
 
 func (a App) loadTasks() tea.Cmd {
 	return func() tea.Msg {
-		tasks, err := a.service.ListTasks(context.Background())
+		ctx := context.Background()
+		tasks, err := a.service.ListTasks(ctx)
 		if err != nil {
 			return errMsg{err}
+		}
+		// Populate BlockedBy for each task
+		deps, _ := a.service.GetAllDependencies(ctx)
+		if deps != nil {
+			for i := range tasks {
+				if blockers, ok := deps[tasks[i].ID]; ok {
+					tasks[i].BlockedBy = blockers
+				}
+			}
 		}
 		return tasksLoadedMsg{tasks: tasks}
 	}
@@ -142,7 +163,7 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tasksLoadedMsg:
 		a.lastTasks = msg.tasks
-		a.board.LoadTasks(msg.tasks)
+		a.board.LoadTasks(a.filteredTasks(msg.tasks))
 		// Follow cursor to the column where a task was just moved
 		if a.cursorFollow != nil {
 			a.board.FocusOnStatus(a.cursorFollow.newStatus)
@@ -543,9 +564,23 @@ func (a App) updateDetail(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (a App) updateBoard(msg tea.Msg) (tea.Model, tea.Cmd) {
+	// Search mode: route input to search input
+	if a.searching {
+		return a.updateSearch(msg)
+	}
+
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		switch {
+		case key.Matches(msg, keys.Escape):
+			// Clear active search filter
+			if a.searchQuery != "" {
+				a.searchQuery = ""
+				a.searchInput.SetValue("")
+				a.board.LoadTasks(a.lastTasks)
+				return a, nil
+			}
+			return a, nil
 		case key.Matches(msg, keys.Quit):
 			return a, tea.Quit
 		case key.Matches(msg, keys.Left):
@@ -620,11 +655,45 @@ func (a App) updateBoard(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case key.Matches(msg, keys.Help):
 			a.overlay = overlayHelp
 			return a, nil
+		case key.Matches(msg, keys.Search):
+			a.searching = true
+			a.searchInput.SetValue("")
+			a.searchInput.Focus()
+			return a, nil
 		}
 	}
 
 	var cmd tea.Cmd
 	a.board, cmd = a.board.Update(msg)
+	return a, cmd
+}
+
+func (a App) updateSearch(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch msg := msg.(type) {
+	case tea.KeyMsg:
+		switch {
+		case key.Matches(msg, keys.Escape):
+			a.searching = false
+			a.searchQuery = ""
+			a.searchInput.SetValue("")
+			a.searchInput.Blur()
+			// Reload with all tasks
+			a.board.LoadTasks(a.lastTasks)
+			return a, nil
+		case key.Matches(msg, keys.Enter):
+			a.searching = false
+			a.searchQuery = a.searchInput.Value()
+			a.searchInput.Blur()
+			// Keep filter active after confirming
+			return a, nil
+		}
+	}
+
+	var cmd tea.Cmd
+	a.searchInput, cmd = a.searchInput.Update(msg)
+	// Live filter as user types
+	a.searchQuery = a.searchInput.Value()
+	a.board.LoadTasks(a.filteredTasks(a.lastTasks))
 	return a, cmd
 }
 
@@ -647,11 +716,20 @@ func (a App) View() string {
 		statusBar = notificationStyle.Render(a.notification.text)
 	}
 
-	modeStr := "[Agent]"
-	if a.mode == modeDetail {
-		modeStr = "[Detail]"
+	var help string
+	if a.searching {
+		help = a.searchInput.View()
+	} else {
+		modeStr := "[Agent]"
+		if a.mode == modeDetail {
+			modeStr = "[Detail]"
+		}
+		filterHint := ""
+		if a.searchQuery != "" {
+			filterHint = fmt.Sprintf("  [filter: %s] esc:clear", a.searchQuery)
+		}
+		help = helpStyle.Render(fmt.Sprintf(" %s  h/l:columns  j/k:tasks  tab:mode  o:new  m/M:move  a:agent  v:view  enter:open  /:search  ?:help  q:quit%s", modeStr, filterHint))
 	}
-	help := helpStyle.Render(fmt.Sprintf(" %s  h/l:columns  j/k:tasks  tab:mode  o:new  m/M:move  a:agent  v:view  enter:open  x:del  ?:help  q:quit", modeStr))
 
 	mainView := lipgloss.JoinVertical(lipgloss.Left, summaryBar, boardView, statusBar, help)
 
@@ -732,6 +810,23 @@ without asking for approval.
   y - yes    n - no    esc - cancel`, current)
 
 	return overlayStyle.Width(40).Render(content)
+}
+
+// filteredTasks returns tasks filtered by the current search query.
+func (a *App) filteredTasks(tasks []db.Task) []db.Task {
+	if a.searchQuery == "" {
+		return tasks
+	}
+	q := strings.ToLower(a.searchQuery)
+	var filtered []db.Task
+	for _, t := range tasks {
+		if strings.Contains(strings.ToLower(t.Title), q) ||
+			strings.Contains(strings.ToLower(t.Description), q) ||
+			strings.Contains(strings.ToLower(t.Assignee), q) {
+			filtered = append(filtered, t)
+		}
+	}
+	return filtered
 }
 
 // Command helpers

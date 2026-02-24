@@ -49,6 +49,8 @@ type Task struct {
 	Position           int         `json:"position"`
 	CreatedAt          time.Time   `json:"created_at"`
 	UpdatedAt          time.Time   `json:"updated_at"`
+	// BlockedBy is populated at read time, not stored in the tasks table.
+	BlockedBy []string `json:"blocked_by,omitempty"`
 }
 
 type Comment struct {

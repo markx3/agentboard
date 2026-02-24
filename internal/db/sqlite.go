@@ -158,5 +158,24 @@ func (d *DB) migrate(ctx context.Context) error {
 		}
 	}
 
+	if currentVersion < 6 {
+		tx, txErr := d.conn.BeginTx(ctx, nil)
+		if txErr != nil {
+			return fmt.Errorf("beginning v6 migration transaction: %w", txErr)
+		}
+		defer tx.Rollback()
+
+		if _, txErr = tx.ExecContext(ctx, migrateV5toV6); txErr != nil {
+			return fmt.Errorf("applying v6 migration: %w", txErr)
+		}
+		if _, txErr = tx.ExecContext(ctx,
+			"INSERT OR REPLACE INTO schema_version (version) VALUES (6)"); txErr != nil {
+			return fmt.Errorf("updating schema version to 6: %w", txErr)
+		}
+		if txErr = tx.Commit(); txErr != nil {
+			return fmt.Errorf("committing v6 migration: %w", txErr)
+		}
+	}
+
 	return nil
 }

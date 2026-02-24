@@ -14,7 +14,11 @@ type taskItem struct {
 }
 
 func (t taskItem) Title() string {
-	return t.statusPrefix() + t.task.Title
+	prefix := t.statusPrefix()
+	if len(t.task.BlockedBy) > 0 {
+		prefix = blockedStyle.Render("🔒 ") + prefix
+	}
+	return prefix + t.task.Title
 }
 
 func (t taskItem) Description() string {

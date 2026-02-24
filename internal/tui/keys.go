@@ -19,6 +19,7 @@ type keyMap struct {
 	Quit       key.Binding
 	Escape     key.Binding
 	Tab        key.Binding
+	Search     key.Binding
 }
 
 var keys = keyMap{
@@ -85,5 +86,9 @@ var keys = keyMap{
 	Tab: key.NewBinding(
 		key.WithKeys("tab"),
 		key.WithHelp("tab", "toggle mode"),
+	),
+	Search: key.NewBinding(
+		key.WithKeys("/"),
+		key.WithHelp("/", "search tasks"),
 	),
 }

@@ -206,6 +206,18 @@ func (d taskDetail) readView() string {
 		lines = append(lines, fmt.Sprintf("PR:      %s", t.PRUrl))
 	}
 
+	if len(t.BlockedBy) > 0 {
+		var shortIDs []string
+		for _, id := range t.BlockedBy {
+			if len(id) > 8 {
+				shortIDs = append(shortIDs, id[:8])
+			} else {
+				shortIDs = append(shortIDs, id)
+			}
+		}
+		lines = append(lines, blockedStyle.Render(fmt.Sprintf("Blocked: %s", strings.Join(shortIDs, ", "))))
+	}
+
 	lines = append(lines, "", fmt.Sprintf("Created: %s", t.CreatedAt.Format("2006-01-02 15:04")))
 	lines = append(lines, "", helpStyle.Render("esc: close | e: edit | m/M: move | a: spawn agent | v: view | A: kill agent | x: delete"))
 
