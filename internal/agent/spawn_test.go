@@ -1,6 +1,8 @@
 package agent
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -216,4 +218,75 @@ func TestShellQuote(t *testing.T) {
 			t.Errorf("shellQuote(%q) = %q, want %q", tt.input, got, tt.want)
 		}
 	}
+}
+
+func TestDeactivateRalphLoop(t *testing.T) {
+	t.Run("file exists with active true", func(t *testing.T) {
+		dir := t.TempDir()
+		// DeactivateRalphLoop uses TaskSlug(task.Title) as base dir,
+		// so we need to chdir to the temp dir and use a matching task title.
+		origDir, _ := os.Getwd()
+		os.Chdir(dir)
+		defer os.Chdir(origDir)
+
+		slug := "test-task"
+		stateDir := filepath.Join(slug, ".claude")
+		os.MkdirAll(stateDir, 0755)
+
+		content := "---\nactive: true\niteration: 3\nmax_iterations: 10\n---\n"
+		os.WriteFile(filepath.Join(stateDir, "ralph-loop.local.md"), []byte(content), 0644)
+
+		task := db.Task{Title: "Test Task"}
+		err := DeactivateRalphLoop(task)
+		if err != nil {
+			t.Fatalf("DeactivateRalphLoop() error = %v", err)
+		}
+
+		data, _ := os.ReadFile(filepath.Join(stateDir, "ralph-loop.local.md"))
+		if strings.Contains(string(data), "active: true") {
+			t.Error("expected active: true to be replaced with active: false")
+		}
+		if !strings.Contains(string(data), "active: false") {
+			t.Error("expected file to contain active: false")
+		}
+	})
+
+	t.Run("file does not exist", func(t *testing.T) {
+		dir := t.TempDir()
+		origDir, _ := os.Getwd()
+		os.Chdir(dir)
+		defer os.Chdir(origDir)
+
+		task := db.Task{Title: "Nonexistent Task"}
+		err := DeactivateRalphLoop(task)
+		if err != nil {
+			t.Fatalf("DeactivateRalphLoop() should return nil for missing file, got %v", err)
+		}
+	})
+
+	t.Run("file exists with active false", func(t *testing.T) {
+		dir := t.TempDir()
+		origDir, _ := os.Getwd()
+		os.Chdir(dir)
+		defer os.Chdir(origDir)
+
+		slug := "already-inactive"
+		stateDir := filepath.Join(slug, ".claude")
+		os.MkdirAll(stateDir, 0755)
+
+		content := "---\nactive: false\niteration: 5\n---\n"
+		os.WriteFile(filepath.Join(stateDir, "ralph-loop.local.md"), []byte(content), 0644)
+
+		task := db.Task{Title: "Already Inactive"}
+		err := DeactivateRalphLoop(task)
+		if err != nil {
+			t.Fatalf("DeactivateRalphLoop() error = %v", err)
+		}
+
+		data, _ := os.ReadFile(filepath.Join(stateDir, "ralph-loop.local.md"))
+		got := string(data)
+		if got != content {
+			t.Errorf("file content changed unexpectedly:\ngot:  %q\nwant: %q", got, content)
+		}
+	})
 }

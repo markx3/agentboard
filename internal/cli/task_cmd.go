@@ -196,6 +196,13 @@ func runTaskMove(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
+	// Update agent metadata so reconciliation has accurate baseline
+	task, getErr := svc.GetTask(context.Background(), fullID)
+	if getErr == nil && task.AgentStatus == db.AgentActive {
+		task.AgentSpawnedStatus = string(newStatus)
+		svc.UpdateTask(context.Background(), task)
+	}
+
 	fmt.Printf("Moved task to %s\n", newStatus)
 	return nil
 }
