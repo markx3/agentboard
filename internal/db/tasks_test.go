@@ -227,6 +227,28 @@ func TestAgentLifecycleFields(t *testing.T) {
 	}
 }
 
+func TestMoveToBrainstorm(t *testing.T) {
+	database := setupTestDB(t)
+	ctx := context.Background()
+
+	task, err := database.CreateTask(ctx, "Brainstorm Me", "")
+	if err != nil {
+		t.Fatalf("creating task: %v", err)
+	}
+
+	if err := database.MoveTask(ctx, task.ID, db.StatusBrainstorm); err != nil {
+		t.Fatalf("moving task to brainstorm: %v", err)
+	}
+
+	got, err := database.GetTask(ctx, task.ID)
+	if err != nil {
+		t.Fatalf("getting task: %v", err)
+	}
+	if got.Status != db.StatusBrainstorm {
+		t.Errorf("got status %q, want %q", got.Status, db.StatusBrainstorm)
+	}
+}
+
 func TestSchemaV2Migration(t *testing.T) {
 	// Create a v1 database manually, then open it with the migrating code
 	dir := t.TempDir()

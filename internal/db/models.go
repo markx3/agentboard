@@ -6,6 +6,7 @@ type TaskStatus string
 
 const (
 	StatusBacklog    TaskStatus = "backlog"
+	StatusBrainstorm TaskStatus = "brainstorm"
 	StatusPlanning   TaskStatus = "planning"
 	StatusInProgress TaskStatus = "in_progress"
 	StatusReview     TaskStatus = "review"
@@ -14,7 +15,7 @@ const (
 
 func (s TaskStatus) Valid() bool {
 	switch s {
-	case StatusBacklog, StatusPlanning, StatusInProgress, StatusReview, StatusDone:
+	case StatusBacklog, StatusBrainstorm, StatusPlanning, StatusInProgress, StatusReview, StatusDone:
 		return true
 	}
 	return false
