@@ -45,9 +45,12 @@ type Task struct {
 	AgentSpawnedStatus string      `json:"agent_spawned_status"`
 	ResetRequested     bool        `json:"reset_requested"`
 	SkipPermissions    bool        `json:"skip_permissions"`
+	AgentActivity      string      `json:"agent_activity"`
 	Position           int         `json:"position"`
 	CreatedAt          time.Time   `json:"created_at"`
 	UpdatedAt          time.Time   `json:"updated_at"`
+	// BlockedBy is populated at read time, not stored in the tasks table.
+	BlockedBy []string `json:"blocked_by,omitempty"`
 }
 
 type Comment struct {

@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -55,7 +56,7 @@ func (b *kanban) SetSize(w, h int) {
 	borderW := 2
 	availW := w - borderW*numCols
 	colWidth := availW / numCols
-	colHeight := h - 4
+	colHeight := h - 5 // 5 = summary bar + status bar + help bar + padding
 
 	for i := range b.columns {
 		cw := colWidth
@@ -142,6 +143,41 @@ func (b kanban) View() string {
 		colViews[i] = col.View()
 	}
 	return lipgloss.JoinHorizontal(lipgloss.Top, colViews...)
+}
+
+func (b kanban) summaryBar() string {
+	var agentActive int
+	statusCounts := make(map[db.TaskStatus]int)
+
+	for _, col := range b.columns {
+		for _, item := range col.list.Items() {
+			if ti, ok := item.(taskItem); ok {
+				statusCounts[ti.task.Status]++
+				if ti.task.AgentStatus == db.AgentActive {
+					agentActive++
+				}
+			}
+		}
+	}
+
+	var parts []string
+	parts = append(parts, fmt.Sprintf("Agents: %d active", agentActive))
+
+	var taskParts []string
+	for _, s := range columnOrder {
+		if s == db.StatusDone || s == db.StatusBacklog {
+			continue
+		}
+		if c := statusCounts[s]; c > 0 {
+			taskParts = append(taskParts, fmt.Sprintf("%d %s", c, columnTitles[s]))
+		}
+	}
+	if len(taskParts) > 0 {
+		parts = append(parts, "Tasks: "+strings.Join(taskParts, ", "))
+	}
+	parts = append(parts, fmt.Sprintf("%d done", statusCounts[db.StatusDone]))
+
+	return summaryBarStyle.Render("  " + strings.Join(parts, " | "))
 }
 
 func (b kanban) statusBar() string {

@@ -14,10 +14,22 @@ type taskItem struct {
 }
 
 func (t taskItem) Title() string {
-	return t.statusPrefix() + t.task.Title
+	prefix := t.statusPrefix()
+	if len(t.task.BlockedBy) > 0 {
+		prefix = blockedStyle.Render("🔒 ") + prefix
+	}
+	return prefix + t.task.Title
 }
 
 func (t taskItem) Description() string {
+	// Prefer activity when agent is active; otherwise show assignee
+	if t.task.AgentActivity != "" {
+		activity := t.task.AgentActivity
+		if len(activity) > 30 {
+			activity = activity[:27] + "..."
+		}
+		return "▸ " + activity
+	}
 	if t.task.Assignee != "" {
 		return fmt.Sprintf("@%s", t.task.Assignee)
 	}

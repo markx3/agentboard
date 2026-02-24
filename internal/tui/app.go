@@ -3,9 +3,12 @@ package tui
 import (
 	"context"
 	"fmt"
+	"log"
+	"strings"
 	"time"
 
 	"github.com/charmbracelet/bubbles/key"
+	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/marcosfelipeeipper/agentboard/internal/agent"
@@ -42,6 +45,14 @@ type pendingFocus struct {
 	newStatus db.TaskStatus
 }
 
+// boardMode controls what Enter does on the board.
+type boardMode int
+
+const (
+	modeAgent  boardMode = iota // Enter opens tmux for active tasks (default)
+	modeDetail                  // Enter always opens task detail
+)
+
 type App struct {
 	board        kanban
 	service      board.Service
@@ -53,6 +64,7 @@ type App struct {
 	width        int
 	height       int
 	ready        bool
+	mode         boardMode // Agent mode (default) vs Detail mode
 	// pendingSpawnTask holds a task awaiting skip-permissions confirmation.
 	pendingSpawnTask *db.Task
 	// availableRunners is cached at startup for agent detection.
@@ -67,6 +79,12 @@ type App struct {
 	tunnelURL    string
 	peerCount    int
 	serverActive bool
+	// prevAgentStates tracks the last known agent status per task ID for notifications.
+	prevAgentStates map[string]db.AgentStatus
+	// Search state
+	searching   bool
+	searchInput textinput.Model
+	searchQuery string
 }
 
 // AppOption configures optional App behavior.
@@ -81,12 +99,18 @@ func WithConnectAddr(addr string) AppOption {
 }
 
 func NewApp(svc board.Service, opts ...AppOption) App {
+	si := textinput.New()
+	si.Prompt = "/ "
+	si.Placeholder = "search tasks..."
+	si.CharLimit = 100
 	a := App{
 		board:            newKanban(),
 		service:          svc,
 		form:             newTaskForm(),
 		availableRunners: agent.AvailableRunners(),
 		pendingRecons:    make(map[string]pendingRecon),
+		prevAgentStates:  make(map[string]db.AgentStatus),
+		searchInput:      si,
 	}
 	for _, opt := range opts {
 		opt(&a)
@@ -100,9 +124,22 @@ func (a App) Init() tea.Cmd {
 
 func (a App) loadTasks() tea.Cmd {
 	return func() tea.Msg {
-		tasks, err := a.service.ListTasks(context.Background())
+		ctx := context.Background()
+		tasks, err := a.service.ListTasks(ctx)
 		if err != nil {
 			return errMsg{err}
+		}
+		// Populate BlockedBy for each task
+		deps, depsErr := a.service.GetAllDependencies(ctx)
+		if depsErr != nil {
+			log.Printf("warning: loading dependencies: %v", depsErr)
+		}
+		if deps != nil {
+			for i := range tasks {
+				if blockers, ok := deps[tasks[i].ID]; ok {
+					tasks[i].BlockedBy = blockers
+				}
+			}
 		}
 		return tasksLoadedMsg{tasks: tasks}
 	}
@@ -130,7 +167,7 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tasksLoadedMsg:
 		a.lastTasks = msg.tasks
-		a.board.LoadTasks(msg.tasks)
+		a.board.LoadTasks(a.filteredTasks(msg.tasks))
 		// Follow cursor to the column where a task was just moved
 		if a.cursorFollow != nil {
 			a.board.FocusOnStatus(a.cursorFollow.newStatus)
@@ -139,6 +176,11 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		// Startup reconciliation: check for stale active states
 		a.reconcileStaleOnStartup()
+		// Check for agent state transitions → notifications
+		cmds := a.checkAgentTransitions(msg.tasks)
+		if len(cmds) > 0 {
+			return a, tea.Batch(cmds...)
+		}
 		return a, nil
 
 	case taskCreatedMsg:
@@ -165,6 +207,14 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a, tea.Batch(
 			a.loadTasks(),
 			a.notify("Task deleted"),
+		)
+
+	case taskSavedMsg:
+		// Refresh the detail view with saved data
+		a.detail.task = msg.task
+		return a, tea.Batch(
+			a.loadTasks(),
+			a.notify("Task saved"),
 		)
 
 	case agentTickMsg:
@@ -305,6 +355,7 @@ func (a *App) reconcileAgents() []tea.Cmd {
 			freshTask.AgentStatus = db.AgentIdle
 			freshTask.AgentStartedAt = ""
 			freshTask.AgentSpawnedStatus = ""
+			freshTask.AgentActivity = ""
 			a.service.UpdateTask(ctx, freshTask)
 			cmds = append(cmds, a.notify("Agent reset requested — ready for respawn"))
 		} else if freshTask.Status != baseline {
@@ -312,16 +363,44 @@ func (a *App) reconcileAgents() []tea.Cmd {
 			freshTask.AgentStatus = db.AgentCompleted
 			freshTask.AgentStartedAt = ""
 			freshTask.AgentSpawnedStatus = ""
+			freshTask.AgentActivity = ""
 			a.service.UpdateTask(ctx, freshTask)
 		} else {
 			// Task still in same column — agent crashed/failed
 			freshTask.AgentStatus = db.AgentError
 			freshTask.AgentStartedAt = ""
 			freshTask.AgentSpawnedStatus = ""
+			freshTask.AgentActivity = ""
 			a.service.UpdateTask(ctx, freshTask)
 		}
 	}
 
+	return cmds
+}
+
+// checkAgentTransitions detects agent state changes and fires notifications.
+func (a *App) checkAgentTransitions(tasks []db.Task) []tea.Cmd {
+	var cmds []tea.Cmd
+	for _, task := range tasks {
+		prev, known := a.prevAgentStates[task.ID]
+		a.prevAgentStates[task.ID] = task.AgentStatus
+
+		if !known {
+			continue
+		}
+		if prev == task.AgentStatus {
+			continue
+		}
+
+		// Agent just completed or errored
+		if task.AgentStatus == db.AgentCompleted {
+			cmds = append(cmds, bellCmd())
+			cmds = append(cmds, a.notify(fmt.Sprintf("Agent completed: %s", task.Title)))
+		} else if task.AgentStatus == db.AgentError {
+			cmds = append(cmds, bellCmd())
+			cmds = append(cmds, a.notify(fmt.Sprintf("Agent error: %s", task.Title)))
+		}
+	}
 	return cmds
 }
 
@@ -428,9 +507,33 @@ func (a App) updateForm(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (a App) updateDetail(msg tea.Msg) (tea.Model, tea.Cmd) {
+	// If in edit mode, route to the edit handler
+	if a.detail.editing {
+		switch msg := msg.(type) {
+		case tea.KeyMsg:
+			if key.Matches(msg, keys.Escape) {
+				// Cancel edit, return to read view (don't close overlay)
+				a.detail.editing = false
+				return a, nil
+			}
+		}
+		var cmd tea.Cmd
+		a.detail, cmd = a.detail.Update(msg)
+		// Check if save was triggered
+		if a.detail.saveNeeded {
+			a.detail.saveNeeded = false
+			return a, a.saveTask(a.detail.task)
+		}
+		return a, cmd
+	}
+
+	// Read mode: handle detail-level actions
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		switch {
+		case msg.String() == "e":
+			a.detail.enterEditMode()
+			return a, nil
 		case key.Matches(msg, keys.MoveRight):
 			return a, a.moveTask(a.detail.task.ID, a.nextStatus(a.detail.task.Status))
 		case key.Matches(msg, keys.MoveLeft):
@@ -465,9 +568,23 @@ func (a App) updateDetail(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (a App) updateBoard(msg tea.Msg) (tea.Model, tea.Cmd) {
+	// Search mode: route input to search input
+	if a.searching {
+		return a.updateSearch(msg)
+	}
+
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		switch {
+		case key.Matches(msg, keys.Escape):
+			// Clear active search filter
+			if a.searchQuery != "" {
+				a.searchQuery = ""
+				a.searchInput.SetValue("")
+				a.board.LoadTasks(a.lastTasks)
+				return a, nil
+			}
+			return a, nil
 		case key.Matches(msg, keys.Quit):
 			return a, tea.Quit
 		case key.Matches(msg, keys.Left):
@@ -480,9 +597,16 @@ func (a App) updateBoard(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.overlay = overlayForm
 			a.form.Reset()
 			return a, a.form.titleInput.Focus()
+		case key.Matches(msg, keys.Tab):
+			if a.mode == modeAgent {
+				a.mode = modeDetail
+			} else {
+				a.mode = modeAgent
+			}
+			return a, nil
 		case key.Matches(msg, keys.Enter):
 			if task := a.board.SelectedTask(); task != nil {
-				if task.AgentStatus == db.AgentActive {
+				if a.mode == modeAgent && task.AgentStatus == db.AgentActive {
 					return a, a.viewAgent(*task)
 				}
 				a.detail = newTaskDetail(*task)
@@ -535,6 +659,11 @@ func (a App) updateBoard(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case key.Matches(msg, keys.Help):
 			a.overlay = overlayHelp
 			return a, nil
+		case key.Matches(msg, keys.Search):
+			a.searching = true
+			a.searchInput.SetValue("")
+			a.searchInput.Focus()
+			return a, nil
 		}
 	}
 
@@ -543,11 +672,41 @@ func (a App) updateBoard(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return a, cmd
 }
 
+func (a App) updateSearch(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch msg := msg.(type) {
+	case tea.KeyMsg:
+		switch {
+		case key.Matches(msg, keys.Escape):
+			a.searching = false
+			a.searchQuery = ""
+			a.searchInput.SetValue("")
+			a.searchInput.Blur()
+			// Reload with all tasks
+			a.board.LoadTasks(a.lastTasks)
+			return a, nil
+		case key.Matches(msg, keys.Enter):
+			a.searching = false
+			a.searchQuery = a.searchInput.Value()
+			a.searchInput.Blur()
+			// Keep filter active after confirming
+			return a, nil
+		}
+	}
+
+	var cmd tea.Cmd
+	a.searchInput, cmd = a.searchInput.Update(msg)
+	// Live filter as user types
+	a.searchQuery = a.searchInput.Value()
+	a.board.LoadTasks(a.filteredTasks(a.lastTasks))
+	return a, cmd
+}
+
 func (a App) View() string {
 	if !a.ready {
 		return "Loading..."
 	}
 
+	summaryBar := a.board.summaryBar()
 	boardView := a.board.View()
 	statusBar := a.board.statusBar()
 
@@ -561,9 +720,22 @@ func (a App) View() string {
 		statusBar = notificationStyle.Render(a.notification.text)
 	}
 
-	help := helpStyle.Render(" h/l:columns  j/k:tasks  o:new  m/M:move  a:spawn agent  v:view  A:kill  enter:open/view  x:delete  ?:help  q:quit")
+	var help string
+	if a.searching {
+		help = a.searchInput.View()
+	} else {
+		modeStr := "[Agent]"
+		if a.mode == modeDetail {
+			modeStr = "[Detail]"
+		}
+		filterHint := ""
+		if a.searchQuery != "" {
+			filterHint = fmt.Sprintf("  [filter: %s] esc:clear", a.searchQuery)
+		}
+		help = helpStyle.Render(fmt.Sprintf(" %s  h/l:columns  j/k:tasks  tab:mode  o:new  m/M:move  a:agent  v:view  enter:open  /:search  ?:help  q:quit%s", modeStr, filterHint))
+	}
 
-	mainView := lipgloss.JoinVertical(lipgloss.Left, boardView, statusBar, help)
+	mainView := lipgloss.JoinVertical(lipgloss.Left, summaryBar, boardView, statusBar, help)
 
 	// Overlay rendering
 	switch a.overlay {
@@ -605,13 +777,20 @@ Actions:
   o         Create new task
   m         Move task right
   M         Move task left
-  enter     Open task (view agent if active)
+  enter     Open task detail (or view agent in Agent mode)
+  e         Edit task (in detail view)
   x         Delete task
   a         Spawn agent (select if multiple available)
   v         View agent (split pane, Ctrl+q to close)
   A         Kill running agent
 
+Board Modes (toggle with tab):
+  [Agent]   Enter opens agent view for active tasks
+  [Detail]  Enter always opens task detail
+
 General:
+  tab       Toggle Agent/Detail mode
+  /         Search tasks
   ?         Toggle help
   esc       Close overlay
   q         Quit
@@ -637,7 +816,31 @@ without asking for approval.
 	return overlayStyle.Width(40).Render(content)
 }
 
+// filteredTasks returns tasks filtered by the current search query.
+func (a App) filteredTasks(tasks []db.Task) []db.Task {
+	if a.searchQuery == "" {
+		return tasks
+	}
+	q := strings.ToLower(a.searchQuery)
+	var filtered []db.Task
+	for _, t := range tasks {
+		if strings.Contains(strings.ToLower(t.Title), q) ||
+			strings.Contains(strings.ToLower(t.Description), q) ||
+			strings.Contains(strings.ToLower(t.Assignee), q) {
+			filtered = append(filtered, t)
+		}
+	}
+	return filtered
+}
+
 // Command helpers
+
+func bellCmd() tea.Cmd {
+	return func() tea.Msg {
+		fmt.Print("\a")
+		return nil
+	}
+}
 
 func (a App) notify(text string) tea.Cmd {
 	return func() tea.Msg {
@@ -652,6 +855,15 @@ func (a App) createTask(title, description string) tea.Cmd {
 			return errMsg{err}
 		}
 		return taskCreatedMsg{task: task}
+	}
+}
+
+func (a App) saveTask(task db.Task) tea.Cmd {
+	return func() tea.Msg {
+		if err := a.service.UpdateTask(context.Background(), &task); err != nil {
+			return errMsg{fmt.Errorf("saving task: %w", err)}
+		}
+		return taskSavedMsg{task: task}
 	}
 }
 

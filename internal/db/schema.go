@@ -1,6 +1,6 @@
 package db
 
-const schemaVersion = 4
+const schemaVersion = 6
 
 const schemaSQL = `
 CREATE TABLE IF NOT EXISTS tasks (
@@ -20,6 +20,7 @@ CREATE TABLE IF NOT EXISTS tasks (
     agent_spawned_status TEXT DEFAULT '',
     reset_requested INTEGER DEFAULT 0,
     skip_permissions INTEGER DEFAULT 0,
+    agent_activity TEXT DEFAULT '',
     position INTEGER NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
@@ -43,10 +44,20 @@ CREATE TABLE IF NOT EXISTS schema_version (
     applied_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+CREATE TABLE IF NOT EXISTS task_dependencies (
+    task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+    blocks_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (task_id, blocks_id),
+    CHECK(task_id != blocks_id)
+);
+
 CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
 CREATE INDEX IF NOT EXISTS idx_tasks_assignee ON tasks(assignee);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_tasks_status_position ON tasks(status, position);
 CREATE INDEX IF NOT EXISTS idx_comments_task_id ON comments(task_id);
+CREATE INDEX IF NOT EXISTS idx_deps_task_id ON task_dependencies(task_id);
+CREATE INDEX IF NOT EXISTS idx_deps_blocks_id ON task_dependencies(blocks_id);
 `
 
 const migrateV1toV2 = `
@@ -127,4 +138,18 @@ ALTER TABLE tasks_v4 RENAME TO tasks;
 CREATE INDEX idx_tasks_status ON tasks(status);
 CREATE INDEX idx_tasks_assignee ON tasks(assignee);
 CREATE UNIQUE INDEX idx_tasks_status_position ON tasks(status, position);
+`
+
+const migrateV4toV5 = `ALTER TABLE tasks ADD COLUMN agent_activity TEXT DEFAULT '';`
+
+const migrateV5toV6 = `
+CREATE TABLE IF NOT EXISTS task_dependencies (
+    task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+    blocks_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (task_id, blocks_id),
+    CHECK(task_id != blocks_id)
+);
+CREATE INDEX IF NOT EXISTS idx_deps_task_id ON task_dependencies(task_id);
+CREATE INDEX IF NOT EXISTS idx_deps_blocks_id ON task_dependencies(blocks_id);
 `

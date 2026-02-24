@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"text/tabwriter"
 
 	"github.com/spf13/cobra"
@@ -72,9 +73,37 @@ var taskUnclaimCmd = &cobra.Command{
 	RunE:  runTaskUnclaim,
 }
 
-var createTitle string
-var createDesc string
-var claimUser string
+var taskUpdateCmd = &cobra.Command{
+	Use:   "update <task-id>",
+	Short: "Update task fields",
+	Args:  cobra.ExactArgs(1),
+	RunE:  runTaskUpdate,
+}
+
+var taskBlockCmd = &cobra.Command{
+	Use:   "block <task-id> <blocker-id>",
+	Short: "Mark a task as blocked by another task",
+	Args:  cobra.ExactArgs(2),
+	RunE:  runTaskBlock,
+}
+
+var taskUnblockCmd = &cobra.Command{
+	Use:   "unblock <task-id> <blocker-id>",
+	Short: "Remove a dependency between tasks",
+	Args:  cobra.ExactArgs(2),
+	RunE:  runTaskUnblock,
+}
+
+var (
+	createTitle string
+	createDesc  string
+	claimUser   string
+	updateTitle string
+	updateDesc  string
+	updateAssignee string
+	updateBranch string
+	updatePRUrl  string
+)
 
 func init() {
 	taskListCmd.Flags().StringVar(&taskFilterStatus, "status", "", "filter by status")
@@ -83,13 +112,20 @@ func init() {
 
 	taskCreateCmd.Flags().StringVar(&createTitle, "title", "", "task title (required)")
 	taskCreateCmd.Flags().StringVar(&createDesc, "description", "", "task description")
+	taskCreateCmd.Flags().BoolVar(&taskOutputJSON, "json", false, "output as JSON")
 	taskCreateCmd.MarkFlagRequired("title")
 
 	taskGetCmd.Flags().BoolVar(&taskOutputJSON, "json", false, "output as JSON")
 
 	taskClaimCmd.Flags().StringVar(&claimUser, "user", "", "username to claim as")
 
-	taskCmd.AddCommand(taskListCmd, taskCreateCmd, taskMoveCmd, taskGetCmd, taskDeleteCmd, taskClaimCmd, taskUnclaimCmd)
+	taskUpdateCmd.Flags().StringVar(&updateTitle, "title", "", "new title")
+	taskUpdateCmd.Flags().StringVar(&updateDesc, "description", "", "new description")
+	taskUpdateCmd.Flags().StringVar(&updateAssignee, "assignee", "", "new assignee")
+	taskUpdateCmd.Flags().StringVar(&updateBranch, "branch", "", "new branch name")
+	taskUpdateCmd.Flags().StringVar(&updatePRUrl, "pr-url", "", "new PR URL")
+
+	taskCmd.AddCommand(taskListCmd, taskCreateCmd, taskMoveCmd, taskGetCmd, taskDeleteCmd, taskClaimCmd, taskUnclaimCmd, taskUpdateCmd, taskBlockCmd, taskUnblockCmd)
 	rootCmd.AddCommand(taskCmd)
 }
 
@@ -130,6 +166,16 @@ func runTaskList(cmd *cobra.Command, args []string) error {
 			}
 		}
 		tasks = filtered
+	}
+
+	// Populate dependency data
+	deps, depsErr := svc.GetAllDependencies(ctx)
+	if depsErr == nil && deps != nil {
+		for i := range tasks {
+			if blockers, ok := deps[tasks[i].ID]; ok {
+				tasks[i].BlockedBy = blockers
+			}
+		}
 	}
 
 	if taskOutputJSON {
@@ -229,6 +275,14 @@ func runTaskGet(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
+	// Populate dependency data
+	deps, depsErr := svc.GetAllDependencies(context.Background())
+	if depsErr == nil && deps != nil {
+		if blockers, ok := deps[task.ID]; ok {
+			task.BlockedBy = blockers
+		}
+	}
+
 	if taskOutputJSON {
 		return json.NewEncoder(os.Stdout).Encode(task)
 	}
@@ -240,6 +294,17 @@ func runTaskGet(cmd *cobra.Command, args []string) error {
 	fmt.Printf("Agent:       %s (%s)\n", task.AgentName, task.AgentStatus)
 	fmt.Printf("Branch:      %s\n", task.BranchName)
 	fmt.Printf("PR:          %s\n", task.PRUrl)
+	if len(task.BlockedBy) > 0 {
+		var shortIDs []string
+		for _, id := range task.BlockedBy {
+			if len(id) > 8 {
+				shortIDs = append(shortIDs, id[:8])
+			} else {
+				shortIDs = append(shortIDs, id)
+			}
+		}
+		fmt.Printf("Blocked by:  %s\n", strings.Join(shortIDs, ", "))
+	}
 	fmt.Printf("Description: %s\n", task.Description)
 	fmt.Printf("Created:     %s\n", task.CreatedAt.Format("2006-01-02 15:04"))
 	return nil
@@ -319,6 +384,125 @@ func runTaskUnclaim(cmd *cobra.Command, args []string) error {
 	}
 
 	fmt.Println("Task unclaimed")
+	return nil
+}
+
+func runTaskUpdate(cmd *cobra.Command, args []string) error {
+	svc, cleanup, err := openService()
+	if err != nil {
+		return err
+	}
+	defer cleanup()
+
+	ctx := context.Background()
+	tasks, err := svc.ListTasks(ctx)
+	if err != nil {
+		return err
+	}
+	fullID := findByPrefix(tasks, args[0])
+	if fullID == "" {
+		return fmt.Errorf("task not found: %s", args[0])
+	}
+
+	task, err := svc.GetTask(ctx, fullID)
+	if err != nil {
+		return err
+	}
+
+	changed := false
+	if cmd.Flags().Changed("title") {
+		if strings.TrimSpace(updateTitle) == "" {
+			return fmt.Errorf("title cannot be empty")
+		}
+		task.Title = updateTitle
+		changed = true
+	}
+	if cmd.Flags().Changed("description") {
+		task.Description = updateDesc
+		changed = true
+	}
+	if cmd.Flags().Changed("assignee") {
+		task.Assignee = updateAssignee
+		changed = true
+	}
+	if cmd.Flags().Changed("branch") {
+		task.BranchName = updateBranch
+		changed = true
+	}
+	if cmd.Flags().Changed("pr-url") {
+		task.PRUrl = updatePRUrl
+		changed = true
+	}
+
+	if !changed {
+		return fmt.Errorf("no fields to update (use --title, --description, --assignee, --branch, --pr-url)")
+	}
+
+	if err := svc.UpdateTask(ctx, task); err != nil {
+		return fmt.Errorf("updating task: %w", err)
+	}
+
+	fmt.Printf("Task %s updated\n", task.ID[:8])
+	return nil
+}
+
+func runTaskBlock(cmd *cobra.Command, args []string) error {
+	svc, cleanup, err := openService()
+	if err != nil {
+		return err
+	}
+	defer cleanup()
+
+	ctx := context.Background()
+	tasks, err := svc.ListTasks(ctx)
+	if err != nil {
+		return err
+	}
+
+	taskID := findByPrefix(tasks, args[0])
+	if taskID == "" {
+		return fmt.Errorf("task not found: %s", args[0])
+	}
+	blockerID := findByPrefix(tasks, args[1])
+	if blockerID == "" {
+		return fmt.Errorf("blocker task not found: %s", args[1])
+	}
+
+	if err := svc.AddDependency(ctx, taskID, blockerID); err != nil {
+		return err
+	}
+
+	fmt.Printf("Task %s is now blocked by %s\n", args[0], args[1])
+	return nil
+}
+
+func runTaskUnblock(cmd *cobra.Command, args []string) error {
+	svc, cleanup, err := openService()
+	if err != nil {
+		return err
+	}
+	defer cleanup()
+
+	ctx := context.Background()
+	tasks, err := svc.ListTasks(ctx)
+	if err != nil {
+		return err
+	}
+
+	taskID := findByPrefix(tasks, args[0])
+	if taskID == "" {
+		return fmt.Errorf("task not found: %s", args[0])
+	}
+	blockerID := findByPrefix(tasks, args[1])
+	if blockerID == "" {
+		return fmt.Errorf("blocker task not found: %s", args[1])
+	}
+
+	if err := svc.RemoveDependency(ctx, taskID, blockerID); err != nil {
+		return err
+	}
+
+	fmt.Printf("Dependency removed: %s no longer blocked by %s\n", args[0], args[1])
 	return nil
 }
 

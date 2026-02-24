@@ -63,6 +63,30 @@ func (s *LocalService) ClaimTask(ctx context.Context, id, assignee string) error
 	return s.db.UpdateTask(ctx, task)
 }
 
+func (s *LocalService) UpdateAgentActivity(ctx context.Context, id, activity string) error {
+	return s.db.UpdateAgentActivity(ctx, id, activity)
+}
+
+func (s *LocalService) AddDependency(ctx context.Context, taskID, blockerID string) error {
+	// Cycle check
+	hasCycle, err := s.db.HasCycle(ctx, taskID, blockerID)
+	if err != nil {
+		return fmt.Errorf("checking cycle: %w", err)
+	}
+	if hasCycle {
+		return fmt.Errorf("adding this dependency would create a cycle")
+	}
+	return s.db.AddDependency(ctx, taskID, blockerID)
+}
+
+func (s *LocalService) RemoveDependency(ctx context.Context, taskID, blockerID string) error {
+	return s.db.RemoveDependency(ctx, taskID, blockerID)
+}
+
+func (s *LocalService) GetAllDependencies(ctx context.Context) (map[string][]string, error) {
+	return s.db.GetAllDependencies(ctx)
+}
+
 func (s *LocalService) UnclaimTask(ctx context.Context, id string) error {
 	task, err := s.db.GetTask(ctx, id)
 	if err != nil {

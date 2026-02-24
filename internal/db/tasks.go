@@ -23,7 +23,7 @@ func scanTask(s scanner) (Task, error) {
 		&t.ID, &t.Title, &t.Description, &t.Status,
 		&t.Assignee, &t.BranchName, &t.PRUrl, &t.PRNumber,
 		&t.AgentName, &t.AgentStatus, &t.AgentStartedAt, &t.AgentSpawnedStatus,
-		&resetRequested, &skipPermissions, &t.Position,
+		&resetRequested, &skipPermissions, &t.AgentActivity, &t.Position,
 		&createdAt, &updatedAt); err != nil {
 		return Task{}, err
 	}
@@ -43,7 +43,7 @@ func scanTask(s scanner) (Task, error) {
 
 const taskColumns = `id, title, description, status, assignee, branch_name, pr_url, pr_number,
 		        agent_name, agent_status, agent_started_at, agent_spawned_status,
-		        reset_requested, skip_permissions, position, created_at, updated_at`
+		        reset_requested, skip_permissions, agent_activity, position, created_at, updated_at`
 
 func (d *DB) CreateTask(ctx context.Context, title, description string) (*Task, error) {
 	tx, err := d.conn.BeginTx(ctx, nil)
@@ -81,12 +81,12 @@ func (d *DB) CreateTask(ctx context.Context, title, description string) (*Task, 
 	_, err = tx.ExecContext(ctx,
 		`INSERT INTO tasks (id, title, description, status, assignee, branch_name, pr_url, pr_number,
 		 agent_name, agent_status, agent_started_at, agent_spawned_status, reset_requested,
-		 skip_permissions, position, created_at, updated_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		 skip_permissions, agent_activity, position, created_at, updated_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		task.ID, task.Title, task.Description, task.Status,
 		task.Assignee, task.BranchName, task.PRUrl, task.PRNumber,
 		task.AgentName, task.AgentStatus, task.AgentStartedAt, task.AgentSpawnedStatus,
-		boolToInt(task.ResetRequested), boolToInt(task.SkipPermissions), task.Position,
+		boolToInt(task.ResetRequested), boolToInt(task.SkipPermissions), task.AgentActivity, task.Position,
 		task.CreatedAt.Format(time.RFC3339), task.UpdatedAt.Format(time.RFC3339))
 	if err != nil {
 		return nil, fmt.Errorf("inserting task: %w", err)
@@ -151,14 +151,24 @@ func (d *DB) UpdateTask(ctx context.Context, task *Task) error {
 	_, err := d.conn.ExecContext(ctx,
 		`UPDATE tasks SET title=?, description=?, status=?, assignee=?, branch_name=?,
 		 pr_url=?, pr_number=?, agent_name=?, agent_status=?, agent_started_at=?,
-		 agent_spawned_status=?, reset_requested=?, skip_permissions=?, position=?, updated_at=?
+		 agent_spawned_status=?, reset_requested=?, skip_permissions=?, agent_activity=?, position=?, updated_at=?
 		 WHERE id=?`,
 		task.Title, task.Description, task.Status, task.Assignee, task.BranchName,
 		task.PRUrl, task.PRNumber, task.AgentName, task.AgentStatus, task.AgentStartedAt,
 		task.AgentSpawnedStatus, boolToInt(task.ResetRequested), boolToInt(task.SkipPermissions),
-		task.Position, task.UpdatedAt.Format(time.RFC3339), task.ID)
+		task.AgentActivity, task.Position, task.UpdatedAt.Format(time.RFC3339), task.ID)
 	if err != nil {
 		return fmt.Errorf("updating task: %w", err)
+	}
+	return nil
+}
+
+func (d *DB) UpdateAgentActivity(ctx context.Context, id, activity string) error {
+	_, err := d.conn.ExecContext(ctx,
+		`UPDATE tasks SET agent_activity=?, updated_at=? WHERE id=?`,
+		activity, time.Now().UTC().Format(time.RFC3339), id)
+	if err != nil {
+		return fmt.Errorf("updating agent activity: %w", err)
 	}
 	return nil
 }
@@ -206,6 +216,90 @@ func (d *DB) DeleteTask(ctx context.Context, id string) error {
 		return fmt.Errorf("deleting task: %w", err)
 	}
 	return nil
+}
+
+// AddDependency records that taskID is blocked by blockerID.
+func (d *DB) AddDependency(ctx context.Context, taskID, blockerID string) error {
+	now := time.Now().UTC().Format(time.RFC3339)
+	_, err := d.conn.ExecContext(ctx,
+		`INSERT OR IGNORE INTO task_dependencies (task_id, blocks_id, created_at) VALUES (?, ?, ?)`,
+		blockerID, taskID, now)
+	if err != nil {
+		return fmt.Errorf("adding dependency: %w", err)
+	}
+	return nil
+}
+
+// RemoveDependency removes the dependency where taskID is blocked by blockerID.
+func (d *DB) RemoveDependency(ctx context.Context, taskID, blockerID string) error {
+	_, err := d.conn.ExecContext(ctx,
+		`DELETE FROM task_dependencies WHERE task_id = ? AND blocks_id = ?`,
+		blockerID, taskID)
+	if err != nil {
+		return fmt.Errorf("removing dependency: %w", err)
+	}
+	return nil
+}
+
+// GetAllDependencies returns a map of taskID → []blockerIDs for all tasks.
+func (d *DB) GetAllDependencies(ctx context.Context) (map[string][]string, error) {
+	rows, err := d.conn.QueryContext(ctx,
+		`SELECT blocks_id, task_id FROM task_dependencies`)
+	if err != nil {
+		return nil, fmt.Errorf("getting all dependencies: %w", err)
+	}
+	defer rows.Close()
+
+	deps := make(map[string][]string)
+	for rows.Next() {
+		var blockedID, blockerID string
+		if err := rows.Scan(&blockedID, &blockerID); err != nil {
+			return nil, err
+		}
+		deps[blockedID] = append(deps[blockedID], blockerID)
+	}
+	return deps, rows.Err()
+}
+
+// HasCycle checks if adding a dependency (taskID blocked by blockerID) would create a cycle.
+// It loads the full dependency graph in a single query and traverses in-memory.
+func (d *DB) HasCycle(ctx context.Context, taskID, blockerID string) (bool, error) {
+	rows, err := d.conn.QueryContext(ctx, `SELECT task_id, blocks_id FROM task_dependencies`)
+	if err != nil {
+		return false, fmt.Errorf("loading dependency graph: %w", err)
+	}
+	defer rows.Close()
+
+	// Build adjacency: task_id (blocker) → []blocks_id (tasks it blocks)
+	graph := make(map[string][]string)
+	for rows.Next() {
+		var blocker, blocked string
+		if err := rows.Scan(&blocker, &blocked); err != nil {
+			return false, err
+		}
+		graph[blocker] = append(graph[blocker], blocked)
+	}
+	if err := rows.Err(); err != nil {
+		return false, err
+	}
+
+	// DFS from taskID through "blocks" edges. If we reach blockerID,
+	// adding the reverse edge (blockerID → taskID) would form a cycle.
+	visited := make(map[string]bool)
+	stack := []string{taskID}
+	for len(stack) > 0 {
+		node := stack[len(stack)-1]
+		stack = stack[:len(stack)-1]
+		if node == blockerID {
+			return true, nil
+		}
+		if visited[node] {
+			continue
+		}
+		visited[node] = true
+		stack = append(stack, graph[node]...)
+	}
+	return false, nil
 }
 
 func (d *DB) NextPosition(ctx context.Context, status TaskStatus) (int, error) {

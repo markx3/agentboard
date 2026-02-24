@@ -73,4 +73,11 @@ var (
 
 	peerCountStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#bd93f9")) // Purple
+
+	summaryBarStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#8be9fd")).
+			Padding(0, 1)
+
+	blockedStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#ff79c6")) // Pink/magenta for blocked indicator
 )

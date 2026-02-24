@@ -18,4 +18,8 @@ type Service interface {
 	DeleteTask(ctx context.Context, id string) error
 	ClaimTask(ctx context.Context, id, assignee string) error
 	UnclaimTask(ctx context.Context, id string) error
+	UpdateAgentActivity(ctx context.Context, id, activity string) error
+	AddDependency(ctx context.Context, taskID, blockerID string) error
+	RemoveDependency(ctx context.Context, taskID, blockerID string) error
+	GetAllDependencies(ctx context.Context) (map[string][]string, error)
 }
