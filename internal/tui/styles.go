@@ -73,4 +73,10 @@ var (
 
 	peerCountStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#bd93f9")) // Purple
+
+	// Enrichment status styles
+	enrichmentPendingStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#888888")) // Gray
+	enrichmentActiveStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("#f1fa8c")) // Yellow
+	enrichmentDoneStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("#50fa7b")) // Green
+	enrichmentErrorStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("#ff5555")) // Red
 )

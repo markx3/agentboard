@@ -67,6 +67,10 @@ type App struct {
 	tunnelURL    string
 	peerCount    int
 	serverActive bool
+	// Enrichment tracking
+	enrichmentSeen    map[string]db.EnrichmentStatus // task ID → last known status
+	enrichmentActive  int                            // current enrichment count
+	enrichmentMaxConc int                            // max concurrent (default 3)
 }
 
 // AppOption configures optional App behavior.
@@ -82,11 +86,13 @@ func WithConnectAddr(addr string) AppOption {
 
 func NewApp(svc board.Service, opts ...AppOption) App {
 	a := App{
-		board:            newKanban(),
-		service:          svc,
-		form:             newTaskForm(),
-		availableRunners: agent.AvailableRunners(),
-		pendingRecons:    make(map[string]pendingRecon),
+		board:             newKanban(),
+		service:           svc,
+		form:              newTaskForm(),
+		availableRunners:  agent.AvailableRunners(),
+		pendingRecons:     make(map[string]pendingRecon),
+		enrichmentSeen:    make(map[string]db.EnrichmentStatus),
+		enrichmentMaxConc: 3,
 	}
 	for _, opt := range opts {
 		opt(&a)
@@ -168,7 +174,11 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		)
 
 	case agentTickMsg:
-		cmds := a.reconcileAgents()
+		// Cache tmux.ListWindows() once per tick (shared across reconciliation functions)
+		windows, _ := tmux.ListWindows()
+		cmds := a.reconcileAgentsWithWindows(windows)
+		cmds = append(cmds, a.reconcileEnrichments(windows)...)
+		cmds = append(cmds, a.checkForEnrichableNewTasks()...)
 		cmds = append(cmds, a.scheduleAgentTick(), a.loadTasks())
 		return a, tea.Batch(cmds...)
 
@@ -250,9 +260,14 @@ func (a *App) reconcileStaleOnStartup() {
 // reconcileAgents checks agent windows and manages the grace period state machine.
 // Returns commands for any DB updates that need to happen.
 func (a *App) reconcileAgents() []tea.Cmd {
+	windows, _ := tmux.ListWindows()
+	return a.reconcileAgentsWithWindows(windows)
+}
+
+// reconcileAgentsWithWindows uses a pre-fetched window map to avoid duplicate tmux calls.
+func (a *App) reconcileAgentsWithWindows(windows map[string]bool) []tea.Cmd {
 	var cmds []tea.Cmd
 	ctx := context.Background()
-	windows, _ := tmux.ListWindows()
 
 	for _, task := range a.lastTasks {
 		if task.AgentStatus != db.AgentActive {
@@ -485,7 +500,7 @@ func (a App) updateBoard(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if task.AgentStatus == db.AgentActive {
 					return a, a.viewAgent(*task)
 				}
-				a.detail = newTaskDetail(*task)
+				a.detail = newTaskDetail(*task, a.service)
 				a.detail.SetSize(a.width, a.height)
 				a.overlay = overlayDetail
 			}
@@ -811,4 +826,110 @@ func (a App) killAgent(task db.Task) tea.Cmd {
 		}
 		return agentKilledMsg{taskID: task.ID}
 	}
+}
+
+// reconcileEnrichments checks enrichment agent windows and updates status when done.
+func (a *App) reconcileEnrichments(windows map[string]bool) []tea.Cmd {
+	var cmds []tea.Cmd
+	ctx := context.Background()
+
+	for _, task := range a.lastTasks {
+		if task.EnrichmentStatus != db.EnrichmentEnriching {
+			continue
+		}
+
+		winName := agent.EnrichmentWindowName(task)
+		if windows[winName] {
+			continue // Still running
+		}
+
+		// Window dead -- check if task was updated
+		freshTask, err := a.service.GetTask(ctx, task.ID)
+		if err != nil {
+			continue
+		}
+
+		var newStatus db.EnrichmentStatus
+		if freshTask.UpdatedAt.After(task.UpdatedAt) {
+			newStatus = db.EnrichmentDone
+		} else {
+			newStatus = db.EnrichmentError
+		}
+
+		empty := ""
+		a.service.UpdateTaskFields(ctx, task.ID, db.TaskFieldUpdate{
+			EnrichmentStatus:    &newStatus,
+			EnrichmentAgentName: &empty,
+		})
+		a.enrichmentActive--
+		if a.enrichmentActive < 0 {
+			a.enrichmentActive = 0
+		}
+
+		status := "enriched"
+		if newStatus == db.EnrichmentError {
+			status = "enrichment failed"
+		}
+		cmds = append(cmds, a.notify(fmt.Sprintf("Task %s: %s", freshTask.Title, status)))
+	}
+	return cmds
+}
+
+// checkForEnrichableNewTasks spawns enrichment agents for tasks with pending enrichment status.
+func (a *App) checkForEnrichableNewTasks() []tea.Cmd {
+	var cmds []tea.Cmd
+
+	if len(a.availableRunners) == 0 {
+		return nil
+	}
+	if !tmux.InTmux() {
+		return nil
+	}
+
+	for _, task := range a.lastTasks {
+		if task.EnrichmentStatus != db.EnrichmentPending {
+			continue
+		}
+
+		// Skip if already seen as pending (avoids re-spawning)
+		if a.enrichmentSeen[task.ID] == db.EnrichmentPending {
+			continue
+		}
+
+		// Cap concurrent enrichments
+		if a.enrichmentActive >= a.enrichmentMaxConc {
+			break
+		}
+
+		// Find a runner that supports enrichment
+		var runner agent.AgentRunner
+		for _, r := range a.availableRunners {
+			if r.BuildEnrichmentCommand(agent.SpawnOpts{WorkDir: ".", Task: task}) != "" {
+				runner = r
+				break
+			}
+		}
+		if runner == nil {
+			// No runner supports enrichment -- mark skipped
+			skipped := db.EnrichmentSkipped
+			a.service.UpdateTaskFields(context.Background(), task.ID, db.TaskFieldUpdate{
+				EnrichmentStatus: &skipped,
+			})
+			continue
+		}
+
+		a.enrichmentSeen[task.ID] = db.EnrichmentPending
+		a.enrichmentActive++
+
+		t := task
+		r := runner
+		cmds = append(cmds, func() tea.Msg {
+			if err := agent.SpawnEnrichment(context.Background(), a.service, t, r); err != nil {
+				return errMsg{fmt.Errorf("enrichment spawn: %w", err)}
+			}
+			return notifyMsg{text: fmt.Sprintf("Enriching: %s", t.Title)}
+		})
+	}
+
+	return cmds
 }

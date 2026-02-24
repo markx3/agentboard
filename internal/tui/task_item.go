@@ -18,10 +18,33 @@ func (t taskItem) Title() string {
 }
 
 func (t taskItem) Description() string {
+	parts := []string{}
 	if t.task.Assignee != "" {
-		return fmt.Sprintf("@%s", t.task.Assignee)
+		parts = append(parts, fmt.Sprintf("@%s", t.task.Assignee))
 	}
-	return ""
+	if badge := t.enrichmentBadge(); badge != "" {
+		parts = append(parts, badge)
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return fmt.Sprintf("%s", parts[0])
+}
+
+// enrichmentBadge returns a short enrichment status indicator.
+func (t taskItem) enrichmentBadge() string {
+	switch t.task.EnrichmentStatus {
+	case db.EnrichmentPending:
+		return enrichmentPendingStyle.Render("[enrich:pending]")
+	case db.EnrichmentEnriching:
+		return enrichmentActiveStyle.Render("[enriching...]")
+	case db.EnrichmentDone:
+		return enrichmentDoneStyle.Render("[enriched]")
+	case db.EnrichmentError:
+		return enrichmentErrorStyle.Render("[enrich:error]")
+	default:
+		return ""
+	}
 }
 
 func (t taskItem) FilterValue() string {
