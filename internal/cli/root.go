@@ -32,7 +32,7 @@ var rootCmd = &cobra.Command{
 }
 
 func init() {
-	rootCmd.PersistentFlags().StringVar(&connectAddr, "connect", "", "connect to a remote server (URL or host:port)")
+	rootCmd.PersistentFlags().StringVar(&connectAddr, "connect", "", "connect to a remote server (e.g. https://abc.ngrok-free.app or 127.0.0.1:8080)")
 }
 
 func Execute() error {
