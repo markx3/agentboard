@@ -61,4 +61,16 @@ var (
 
 	editingHintStyle = lipgloss.NewStyle().
 				Foreground(lipgloss.Color("#666666"))
+
+	tunnelConnectedStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("#50fa7b")) // Green
+
+	tunnelDisconnectedStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("#ff5555")) // Red
+
+	tunnelURLStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#8be9fd")) // Cyan
+
+	peerCountStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#bd93f9")) // Purple
 )

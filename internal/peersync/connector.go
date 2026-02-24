@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"net/url"
+	"strings"
 	"sync"
 
 	"github.com/gorilla/websocket"
@@ -30,8 +32,8 @@ func NewConnector(addr, token string) *Connector {
 }
 
 func (c *Connector) Connect(ctx context.Context) error {
-	url := fmt.Sprintf("ws://%s/ws", c.addr)
-	conn, _, err := websocket.DefaultDialer.DialContext(ctx, url, nil)
+	wsURL := buildWSURL(c.addr)
+	conn, _, err := websocket.DefaultDialer.DialContext(ctx, wsURL, nil)
 	if err != nil {
 		return fmt.Errorf("connecting to %s: %w", c.addr, err)
 	}
@@ -121,4 +123,58 @@ func (c *Connector) Close() error {
 
 func (c *Connector) Done() <-chan struct{} {
 	return c.done
+}
+
+// buildWSURL converts an address to a WebSocket URL.
+//
+// Supported formats:
+//   - "https://abc.ngrok-free.app" → "wss://abc.ngrok-free.app/ws"
+//   - "http://localhost:8080"      → "ws://localhost:8080/ws"
+//   - "abc.ngrok-free.app"         → "wss://abc.ngrok-free.app/ws"
+//   - "127.0.0.1:8080"            → "ws://127.0.0.1:8080/ws"
+func buildWSURL(addr string) string {
+	// If it has a scheme, parse and convert
+	if strings.HasPrefix(addr, "https://") || strings.HasPrefix(addr, "http://") {
+		u, err := url.Parse(addr)
+		if err == nil {
+			scheme := "ws"
+			if u.Scheme == "https" {
+				scheme = "wss"
+			}
+			path := u.Path
+			if path == "" || path == "/" {
+				path = "/ws"
+			}
+			return fmt.Sprintf("%s://%s%s", scheme, u.Host, path)
+		}
+	}
+
+	// If it has a wss:// or ws:// scheme already, just ensure /ws path
+	if strings.HasPrefix(addr, "wss://") || strings.HasPrefix(addr, "ws://") {
+		u, err := url.Parse(addr)
+		if err == nil {
+			path := u.Path
+			if path == "" || path == "/" {
+				path = "/ws"
+			}
+			return fmt.Sprintf("%s://%s%s", u.Scheme, u.Host, path)
+		}
+	}
+
+	// Bare host — detect known tunnel domains for wss, otherwise ws
+	if needsWSS(addr) {
+		return fmt.Sprintf("wss://%s/ws", addr)
+	}
+	return fmt.Sprintf("ws://%s/ws", addr)
+}
+
+// needsWSS returns true if the address looks like a tunnel/HTTPS domain.
+func needsWSS(addr string) bool {
+	host := addr
+	if i := strings.LastIndex(host, ":"); i >= 0 {
+		host = host[:i]
+	}
+	return strings.Contains(host, "ngrok") ||
+		strings.Contains(host, ".app") ||
+		strings.Contains(host, ".io")
 }
