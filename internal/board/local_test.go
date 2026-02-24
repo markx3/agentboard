@@ -42,8 +42,8 @@ func TestClaimTask(t *testing.T) {
 	if got.Assignee != "alice" {
 		t.Errorf("got assignee %q, want %q", got.Assignee, "alice")
 	}
-	if got.Status != db.StatusPlanning {
-		t.Errorf("got status %q, want %q", got.Status, db.StatusPlanning)
+	if got.Status != db.StatusBrainstorm {
+		t.Errorf("got status %q, want %q", got.Status, db.StatusBrainstorm)
 	}
 }
 
@@ -87,6 +87,7 @@ func TestMoveTaskService(t *testing.T) {
 	task, _ := svc.CreateTask(ctx, "Move Through", "")
 
 	statuses := []db.TaskStatus{
+		db.StatusBrainstorm,
 		db.StatusPlanning,
 		db.StatusInProgress,
 		db.StatusReview,

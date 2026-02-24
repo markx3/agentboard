@@ -53,9 +53,9 @@ func (s *LocalService) ClaimTask(ctx context.Context, id, assignee string) error
 		return fmt.Errorf("task already claimed by %s", task.Assignee)
 	}
 	task.Assignee = assignee
-	task.Status = db.StatusPlanning
-	// Reposition at end of planning column
-	pos, err := s.db.NextPosition(ctx, db.StatusPlanning)
+	task.Status = db.StatusBrainstorm
+	// Reposition at end of brainstorm column
+	pos, err := s.db.NextPosition(ctx, db.StatusBrainstorm)
 	if err != nil {
 		return err
 	}
