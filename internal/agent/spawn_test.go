@@ -160,6 +160,78 @@ func TestClaudeRunnerStagePrompts(t *testing.T) {
 	}
 }
 
+func TestClaudeRunnerBuildEnrichmentCommand(t *testing.T) {
+	runner := &ClaudeRunner{}
+
+	task := db.Task{
+		ID:          "abcdef1234567890",
+		Title:       "Test Task",
+		Description: "A test description",
+		Status:      db.StatusInProgress,
+	}
+
+	opts := SpawnOpts{
+		WorkDir: ".",
+		Task:    task,
+	}
+
+	cmd := runner.BuildEnrichmentCommand(opts)
+
+	// Should not be empty (Claude supports enrichment)
+	if cmd == "" {
+		t.Fatal("BuildEnrichmentCommand returned empty string")
+	}
+
+	// Should use timeout
+	if !strings.Contains(cmd, "timeout") {
+		t.Error("enrichment command should contain timeout")
+	}
+
+	// Should use --dangerously-skip-permissions for autonomous operation
+	if !strings.Contains(cmd, "--dangerously-skip-permissions") {
+		t.Error("enrichment command should use --dangerously-skip-permissions")
+	}
+
+	// Should reference the task ID
+	if !strings.Contains(cmd, "abcdef12") {
+		t.Error("enrichment command should contain task short ID")
+	}
+
+	// Should contain enrichment instructions
+	if !strings.Contains(cmd, "enrich") || !strings.Contains(cmd, "task") {
+		t.Error("enrichment command should contain enrichment instructions")
+	}
+}
+
+func TestCursorRunnerBuildEnrichmentCommand(t *testing.T) {
+	runner := &CursorRunner{}
+
+	task := db.Task{
+		ID:    "abcdef1234567890",
+		Title: "Test Task",
+	}
+
+	opts := SpawnOpts{
+		WorkDir: ".",
+		Task:    task,
+	}
+
+	cmd := runner.BuildEnrichmentCommand(opts)
+
+	// Cursor does not support enrichment
+	if cmd != "" {
+		t.Errorf("CursorRunner.BuildEnrichmentCommand should return empty, got %q", cmd)
+	}
+}
+
+func TestEnrichmentWindowName(t *testing.T) {
+	task := db.Task{ID: "abcdef1234567890"}
+	name := EnrichmentWindowName(task)
+	if name != "enrich-abcdef12" {
+		t.Errorf("EnrichmentWindowName: got %q, want %q", name, "enrich-abcdef12")
+	}
+}
+
 func TestGetRunner(t *testing.T) {
 	claude := GetRunner("claude")
 	if claude == nil {

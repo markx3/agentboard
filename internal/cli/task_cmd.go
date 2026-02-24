@@ -80,52 +80,152 @@ var taskUpdateCmd = &cobra.Command{
 	RunE:  runTaskUpdate,
 }
 
+var taskCommentCmd = &cobra.Command{
+	Use:   "comment <task-id>",
+	Short: "Add a comment to a task",
+	Args:  cobra.ExactArgs(1),
+	RunE:  runTaskComment,
+}
+
 var taskBlockCmd = &cobra.Command{
 	Use:   "block <task-id> <blocker-id>",
-	Short: "Mark a task as blocked by another task",
+	Short: "Mark a task as blocked by another",
 	Args:  cobra.ExactArgs(2),
 	RunE:  runTaskBlock,
 }
 
 var taskUnblockCmd = &cobra.Command{
 	Use:   "unblock <task-id> <blocker-id>",
-	Short: "Remove a dependency between tasks",
+	Short: "Remove a dependency",
 	Args:  cobra.ExactArgs(2),
 	RunE:  runTaskUnblock,
+}
+
+var taskSuggestCmd = &cobra.Command{
+	Use:   "suggest <task-id>",
+	Short: "Create a suggestion for a task",
+	Args:  cobra.ExactArgs(1),
+	RunE:  runTaskSuggest,
+}
+
+var taskProposeCmd = &cobra.Command{
+	Use:   "propose",
+	Short: "Propose a new task (creates a suggestion)",
+	RunE:  runTaskPropose,
+}
+
+var taskSuggestionsCmd = &cobra.Command{
+	Use:   "suggestions",
+	Short: "List suggestions",
+	RunE:  runTaskSuggestions,
+}
+
+var taskSuggestionCmd = &cobra.Command{
+	Use:   "suggestion",
+	Short: "Manage individual suggestions",
+}
+
+var taskSuggestionAcceptCmd = &cobra.Command{
+	Use:   "accept <suggestion-id>",
+	Short: "Accept a suggestion",
+	Args:  cobra.ExactArgs(1),
+	RunE:  runTaskSuggestionAccept,
+}
+
+var taskSuggestionDismissCmd = &cobra.Command{
+	Use:   "dismiss <suggestion-id>",
+	Short: "Dismiss a suggestion",
+	Args:  cobra.ExactArgs(1),
+	RunE:  runTaskSuggestionDismiss,
 }
 
 var (
 	createTitle string
 	createDesc  string
 	claimUser   string
-	updateTitle string
-	updateDesc  string
-	updateAssignee string
-	updateBranch string
-	updatePRUrl  string
+	noEnrich    bool
+
+	// task update flags
+	updateTitle            string
+	updateDescription      string
+	updateAssignee         string
+	updateBranch           string
+	updatePRUrl            string
+	updateAddDep           string
+	updateRemoveDep        string
+	updateEnrichmentStatus string
+
+	// task comment flags
+	commentAuthor string
+	commentBody   string
+
+	// task suggest flags
+	suggestAuthor  string
+	suggestTitle   string
+	suggestMessage string
+
+	// task propose flags
+	proposeTitle       string
+	proposeDescription string
+	proposeReason      string
+
+	// task suggestions filter
+	suggestionsStatus string
 )
 
 func init() {
+	// Make --json a persistent flag on taskCmd so all subcommands inherit it
+	taskCmd.PersistentFlags().BoolVar(&taskOutputJSON, "json", false, "output as JSON")
+
 	taskListCmd.Flags().StringVar(&taskFilterStatus, "status", "", "filter by status")
 	taskListCmd.Flags().StringVar(&taskFilterAssignee, "assignee", "", "filter by assignee")
-	taskListCmd.Flags().BoolVar(&taskOutputJSON, "json", false, "output as JSON")
 
 	taskCreateCmd.Flags().StringVar(&createTitle, "title", "", "task title (required)")
 	taskCreateCmd.Flags().StringVar(&createDesc, "description", "", "task description")
-	taskCreateCmd.Flags().BoolVar(&taskOutputJSON, "json", false, "output as JSON")
+	taskCreateCmd.Flags().BoolVar(&noEnrich, "no-enrich", false, "skip automatic enrichment")
 	taskCreateCmd.MarkFlagRequired("title")
-
-	taskGetCmd.Flags().BoolVar(&taskOutputJSON, "json", false, "output as JSON")
 
 	taskClaimCmd.Flags().StringVar(&claimUser, "user", "", "username to claim as")
 
-	taskUpdateCmd.Flags().StringVar(&updateTitle, "title", "", "new title")
-	taskUpdateCmd.Flags().StringVar(&updateDesc, "description", "", "new description")
-	taskUpdateCmd.Flags().StringVar(&updateAssignee, "assignee", "", "new assignee")
-	taskUpdateCmd.Flags().StringVar(&updateBranch, "branch", "", "new branch name")
-	taskUpdateCmd.Flags().StringVar(&updatePRUrl, "pr-url", "", "new PR URL")
+	// task update flags
+	taskUpdateCmd.Flags().StringVar(&updateTitle, "title", "", "update task title")
+	taskUpdateCmd.Flags().StringVar(&updateDescription, "description", "", "update task description")
+	taskUpdateCmd.Flags().StringVar(&updateAssignee, "assignee", "", "update assignee")
+	taskUpdateCmd.Flags().StringVar(&updateBranch, "branch", "", "update branch name")
+	taskUpdateCmd.Flags().StringVar(&updatePRUrl, "pr-url", "", "update PR URL")
+	taskUpdateCmd.Flags().StringVar(&updateAddDep, "add-dep", "", "add dependency (task ID prefix)")
+	taskUpdateCmd.Flags().StringVar(&updateRemoveDep, "remove-dep", "", "remove dependency (task ID prefix)")
+	taskUpdateCmd.Flags().StringVar(&updateEnrichmentStatus, "enrichment-status", "", "set enrichment status")
 
-	taskCmd.AddCommand(taskListCmd, taskCreateCmd, taskMoveCmd, taskGetCmd, taskDeleteCmd, taskClaimCmd, taskUnclaimCmd, taskUpdateCmd, taskBlockCmd, taskUnblockCmd)
+	// task comment flags
+	taskCommentCmd.Flags().StringVar(&commentAuthor, "author", "", "comment author (required)")
+	taskCommentCmd.Flags().StringVar(&commentBody, "body", "", "comment body (required)")
+	taskCommentCmd.MarkFlagRequired("author")
+	taskCommentCmd.MarkFlagRequired("body")
+
+	// task suggest flags
+	taskSuggestCmd.Flags().StringVar(&suggestAuthor, "author", "", "suggestion author")
+	taskSuggestCmd.Flags().StringVar(&suggestTitle, "title", "", "suggestion title")
+	taskSuggestCmd.Flags().StringVar(&suggestMessage, "message", "", "suggestion message (required)")
+	taskSuggestCmd.MarkFlagRequired("message")
+
+	// task propose flags
+	taskProposeCmd.Flags().StringVar(&proposeTitle, "title", "", "proposed task title (required)")
+	taskProposeCmd.Flags().StringVar(&proposeDescription, "description", "", "proposed task description")
+	taskProposeCmd.Flags().StringVar(&proposeReason, "reason", "", "why this task is needed")
+	taskProposeCmd.MarkFlagRequired("title")
+
+	// task suggestions filter
+	taskSuggestionsCmd.Flags().StringVar(&suggestionsStatus, "status", "pending", "filter by status (pending, accepted, dismissed)")
+
+	// Build command tree
+	taskSuggestionCmd.AddCommand(taskSuggestionAcceptCmd, taskSuggestionDismissCmd)
+	taskCmd.AddCommand(
+		taskListCmd, taskCreateCmd, taskMoveCmd, taskGetCmd, taskDeleteCmd,
+		taskClaimCmd, taskUnclaimCmd, taskUpdateCmd, taskCommentCmd,
+		taskBlockCmd, taskUnblockCmd,
+		taskSuggestCmd, taskProposeCmd, taskSuggestionsCmd, taskSuggestionCmd,
+	)
 	rootCmd.AddCommand(taskCmd)
 }
 
@@ -169,7 +269,7 @@ func runTaskList(cmd *cobra.Command, args []string) error {
 	}
 
 	// Populate dependency data
-	deps, depsErr := svc.GetAllDependencies(ctx)
+	deps, depsErr := svc.ListAllDependencies(ctx)
 	if depsErr == nil && deps != nil {
 		for i := range tasks {
 			if blockers, ok := deps[tasks[i].ID]; ok {
@@ -205,6 +305,21 @@ func runTaskCreate(cmd *cobra.Command, args []string) error {
 	task, err := svc.CreateTask(context.Background(), createTitle, createDesc)
 	if err != nil {
 		return err
+	}
+
+	// Set enrichment status
+	if noEnrich {
+		skipped := db.EnrichmentSkipped
+		svc.UpdateTaskFields(context.Background(), task.ID, db.TaskFieldUpdate{
+			EnrichmentStatus: &skipped,
+		})
+		task.EnrichmentStatus = skipped
+	} else {
+		pending := db.EnrichmentPending
+		svc.UpdateTaskFields(context.Background(), task.ID, db.TaskFieldUpdate{
+			EnrichmentStatus: &pending,
+		})
+		task.EnrichmentStatus = pending
 	}
 
 	if taskOutputJSON {
@@ -249,8 +364,19 @@ func runTaskMove(cmd *cobra.Command, args []string) error {
 		svc.UpdateTask(context.Background(), task)
 	}
 
+	if taskOutputJSON && task != nil {
+		return json.NewEncoder(os.Stdout).Encode(task)
+	}
+
 	fmt.Printf("Moved task to %s\n", newStatus)
 	return nil
+}
+
+// taskGetResponse extends Task with dependencies and comments for JSON output.
+type taskGetResponse struct {
+	db.Task
+	Dependencies []string     `json:"dependencies"`
+	Comments     []db.Comment `json:"comments"`
 }
 
 func runTaskGet(cmd *cobra.Command, args []string) error {
@@ -260,8 +386,10 @@ func runTaskGet(cmd *cobra.Command, args []string) error {
 	}
 	defer cleanup()
 
+	ctx := context.Background()
+
 	// Find by prefix
-	tasks, err := svc.ListTasks(context.Background())
+	tasks, err := svc.ListTasks(ctx)
 	if err != nil {
 		return err
 	}
@@ -270,21 +398,35 @@ func runTaskGet(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("task not found: %s", args[0])
 	}
 
-	task, err := svc.GetTask(context.Background(), fullID)
+	task, err := svc.GetTask(ctx, fullID)
 	if err != nil {
 		return err
 	}
 
-	// Populate dependency data
-	deps, depsErr := svc.GetAllDependencies(context.Background())
-	if depsErr == nil && deps != nil {
-		if blockers, ok := deps[task.ID]; ok {
+	// Populate dependency data (blocked-by)
+	allDeps, depsErr := svc.ListAllDependencies(ctx)
+	if depsErr == nil && allDeps != nil {
+		if blockers, ok := allDeps[task.ID]; ok {
 			task.BlockedBy = blockers
 		}
 	}
 
 	if taskOutputJSON {
-		return json.NewEncoder(os.Stdout).Encode(task)
+		// Include dependencies and comments in JSON output
+		deps, _ := svc.ListDependencies(ctx, task.ID)
+		if deps == nil {
+			deps = []string{}
+		}
+		comments, _ := svc.ListComments(ctx, task.ID)
+		if comments == nil {
+			comments = []db.Comment{}
+		}
+		resp := taskGetResponse{
+			Task:         *task,
+			Dependencies: deps,
+			Comments:     comments,
+		}
+		return json.NewEncoder(os.Stdout).Encode(resp)
 	}
 
 	fmt.Printf("ID:          %s\n", task.ID)
@@ -294,6 +436,9 @@ func runTaskGet(cmd *cobra.Command, args []string) error {
 	fmt.Printf("Agent:       %s (%s)\n", task.AgentName, task.AgentStatus)
 	fmt.Printf("Branch:      %s\n", task.BranchName)
 	fmt.Printf("PR:          %s\n", task.PRUrl)
+	if task.EnrichmentStatus != "" {
+		fmt.Printf("Enrichment:  %s\n", task.EnrichmentStatus)
+	}
 	if len(task.BlockedBy) > 0 {
 		var shortIDs []string
 		for _, id := range task.BlockedBy {
@@ -307,6 +452,29 @@ func runTaskGet(cmd *cobra.Command, args []string) error {
 	}
 	fmt.Printf("Description: %s\n", task.Description)
 	fmt.Printf("Created:     %s\n", task.CreatedAt.Format("2006-01-02 15:04"))
+
+	// Show dependencies
+	deps, _ := svc.ListDependencies(ctx, task.ID)
+	if len(deps) > 0 {
+		fmt.Printf("Depends on:  ")
+		for i, d := range deps {
+			if i > 0 {
+				fmt.Printf(", ")
+			}
+			fmt.Printf("%s", d[:8])
+		}
+		fmt.Println()
+	}
+
+	// Show comments
+	comments, _ := svc.ListComments(ctx, task.ID)
+	if len(comments) > 0 {
+		fmt.Println("\nComments:")
+		for _, c := range comments {
+			fmt.Printf("  [%s] %s: %s\n", c.CreatedAt.Format("15:04"), c.Author, c.Body)
+		}
+	}
+
 	return nil
 }
 
@@ -317,7 +485,8 @@ func runTaskDelete(cmd *cobra.Command, args []string) error {
 	}
 	defer cleanup()
 
-	tasks, err := svc.ListTasks(context.Background())
+	ctx := context.Background()
+	tasks, err := svc.ListTasks(ctx)
 	if err != nil {
 		return err
 	}
@@ -326,8 +495,14 @@ func runTaskDelete(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("task not found: %s", args[0])
 	}
 
-	if err := svc.DeleteTask(context.Background(), fullID); err != nil {
+	task, _ := svc.GetTask(ctx, fullID)
+
+	if err := svc.DeleteTask(ctx, fullID); err != nil {
 		return err
+	}
+
+	if taskOutputJSON && task != nil {
+		return json.NewEncoder(os.Stdout).Encode(map[string]string{"deleted": fullID})
 	}
 
 	fmt.Println("Task deleted")
@@ -341,7 +516,8 @@ func runTaskClaim(cmd *cobra.Command, args []string) error {
 	}
 	defer cleanup()
 
-	tasks, err := svc.ListTasks(context.Background())
+	ctx := context.Background()
+	tasks, err := svc.ListTasks(ctx)
 	if err != nil {
 		return err
 	}
@@ -355,8 +531,15 @@ func runTaskClaim(cmd *cobra.Command, args []string) error {
 		user = "local"
 	}
 
-	if err := svc.ClaimTask(context.Background(), fullID, user); err != nil {
+	if err := svc.ClaimTask(ctx, fullID, user); err != nil {
 		return err
+	}
+
+	if taskOutputJSON {
+		task, _ := svc.GetTask(ctx, fullID)
+		if task != nil {
+			return json.NewEncoder(os.Stdout).Encode(task)
+		}
 	}
 
 	fmt.Printf("Task claimed by %s\n", user)
@@ -370,7 +553,8 @@ func runTaskUnclaim(cmd *cobra.Command, args []string) error {
 	}
 	defer cleanup()
 
-	tasks, err := svc.ListTasks(context.Background())
+	ctx := context.Background()
+	tasks, err := svc.ListTasks(ctx)
 	if err != nil {
 		return err
 	}
@@ -379,8 +563,15 @@ func runTaskUnclaim(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("task not found: %s", args[0])
 	}
 
-	if err := svc.UnclaimTask(context.Background(), fullID); err != nil {
+	if err := svc.UnclaimTask(ctx, fullID); err != nil {
 		return err
+	}
+
+	if taskOutputJSON {
+		task, _ := svc.GetTask(ctx, fullID)
+		if task != nil {
+			return json.NewEncoder(os.Stdout).Encode(task)
+		}
 	}
 
 	fmt.Println("Task unclaimed")
@@ -404,45 +595,94 @@ func runTaskUpdate(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("task not found: %s", args[0])
 	}
 
-	task, err := svc.GetTask(ctx, fullID)
-	if err != nil {
-		return err
-	}
-
-	changed := false
+	// Build partial update from explicitly-set flags
+	var update db.TaskFieldUpdate
 	if cmd.Flags().Changed("title") {
 		if strings.TrimSpace(updateTitle) == "" {
 			return fmt.Errorf("title cannot be empty")
 		}
-		task.Title = updateTitle
-		changed = true
+		update.Title = &updateTitle
 	}
 	if cmd.Flags().Changed("description") {
-		task.Description = updateDesc
-		changed = true
+		update.Description = &updateDescription
 	}
 	if cmd.Flags().Changed("assignee") {
-		task.Assignee = updateAssignee
-		changed = true
+		update.Assignee = &updateAssignee
 	}
 	if cmd.Flags().Changed("branch") {
-		task.BranchName = updateBranch
-		changed = true
+		update.BranchName = &updateBranch
 	}
 	if cmd.Flags().Changed("pr-url") {
-		task.PRUrl = updatePRUrl
-		changed = true
+		update.PRUrl = &updatePRUrl
+	}
+	if cmd.Flags().Changed("enrichment-status") {
+		es := db.EnrichmentStatus(updateEnrichmentStatus)
+		if !es.Valid() {
+			return fmt.Errorf("invalid enrichment status: %s", updateEnrichmentStatus)
+		}
+		update.EnrichmentStatus = &es
 	}
 
-	if !changed {
-		return fmt.Errorf("no fields to update (use --title, --description, --assignee, --branch, --pr-url)")
+	if err := svc.UpdateTaskFields(ctx, fullID, update); err != nil {
+		return err
 	}
 
-	if err := svc.UpdateTask(ctx, task); err != nil {
-		return fmt.Errorf("updating task: %w", err)
+	// Handle dependency changes
+	if cmd.Flags().Changed("add-dep") {
+		depID := findByPrefix(tasks, updateAddDep)
+		if depID == "" {
+			return fmt.Errorf("dependency task not found: %s", updateAddDep)
+		}
+		if err := svc.AddDependency(ctx, fullID, depID); err != nil {
+			return err
+		}
+	}
+	if cmd.Flags().Changed("remove-dep") {
+		depID := findByPrefix(tasks, updateRemoveDep)
+		if depID == "" {
+			return fmt.Errorf("dependency task not found: %s", updateRemoveDep)
+		}
+		if err := svc.RemoveDependency(ctx, fullID, depID); err != nil {
+			return err
+		}
 	}
 
-	fmt.Printf("Task %s updated\n", task.ID[:8])
+	task, _ := svc.GetTask(ctx, fullID)
+	if taskOutputJSON && task != nil {
+		return json.NewEncoder(os.Stdout).Encode(task)
+	}
+
+	fmt.Println("Task updated")
+	return nil
+}
+
+func runTaskComment(cmd *cobra.Command, args []string) error {
+	svc, cleanup, err := openService()
+	if err != nil {
+		return err
+	}
+	defer cleanup()
+
+	ctx := context.Background()
+	tasks, err := svc.ListTasks(ctx)
+	if err != nil {
+		return err
+	}
+	fullID := findByPrefix(tasks, args[0])
+	if fullID == "" {
+		return fmt.Errorf("task not found: %s", args[0])
+	}
+
+	comment, err := svc.AddComment(ctx, fullID, commentAuthor, commentBody)
+	if err != nil {
+		return err
+	}
+
+	if taskOutputJSON {
+		return json.NewEncoder(os.Stdout).Encode(comment)
+	}
+
+	fmt.Printf("Comment added by %s\n", comment.Author)
 	return nil
 }
 
@@ -472,7 +712,11 @@ func runTaskBlock(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	fmt.Printf("Task %s is now blocked by %s\n", args[0], args[1])
+	if taskOutputJSON {
+		return json.NewEncoder(os.Stdout).Encode(map[string]string{"task_id": taskID, "blocked_by": blockerID})
+	}
+
+	fmt.Printf("Task %s blocked by %s\n", taskID[:8], blockerID[:8])
 	return nil
 }
 
@@ -502,7 +746,156 @@ func runTaskUnblock(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	fmt.Printf("Dependency removed: %s no longer blocked by %s\n", args[0], args[1])
+	if taskOutputJSON {
+		return json.NewEncoder(os.Stdout).Encode(map[string]string{"task_id": taskID, "unblocked": blockerID})
+	}
+
+	fmt.Printf("Dependency removed: %s no longer blocked by %s\n", taskID[:8], blockerID[:8])
+	return nil
+}
+
+func runTaskSuggest(cmd *cobra.Command, args []string) error {
+	svc, cleanup, err := openService()
+	if err != nil {
+		return err
+	}
+	defer cleanup()
+
+	ctx := context.Background()
+	tasks, err := svc.ListTasks(ctx)
+	if err != nil {
+		return err
+	}
+	fullID := findByPrefix(tasks, args[0])
+	if fullID == "" {
+		return fmt.Errorf("task not found: %s", args[0])
+	}
+
+	sug, err := svc.CreateSuggestion(ctx, fullID, db.SuggestionHint, suggestAuthor, suggestTitle, suggestMessage)
+	if err != nil {
+		return err
+	}
+
+	if taskOutputJSON {
+		return json.NewEncoder(os.Stdout).Encode(sug)
+	}
+
+	fmt.Printf("Suggestion created: %s\n", sug.ID[:8])
+	return nil
+}
+
+func runTaskPropose(cmd *cobra.Command, args []string) error {
+	svc, cleanup, err := openService()
+	if err != nil {
+		return err
+	}
+	defer cleanup()
+
+	ctx := context.Background()
+	message := proposeDescription
+	if proposeReason != "" {
+		message = proposeDescription + "\n\nReason: " + proposeReason
+	}
+
+	sug, err := svc.CreateSuggestion(ctx, "", db.SuggestionProposal, "", proposeTitle, message)
+	if err != nil {
+		return err
+	}
+
+	if taskOutputJSON {
+		return json.NewEncoder(os.Stdout).Encode(sug)
+	}
+
+	fmt.Printf("Proposal created: %s (%s)\n", proposeTitle, sug.ID[:8])
+	return nil
+}
+
+func runTaskSuggestions(cmd *cobra.Command, args []string) error {
+	svc, cleanup, err := openService()
+	if err != nil {
+		return err
+	}
+	defer cleanup()
+
+	ctx := context.Background()
+	status := db.SuggestionStatus(suggestionsStatus)
+	if !status.Valid() {
+		return fmt.Errorf("invalid suggestion status: %s", suggestionsStatus)
+	}
+
+	suggestions, err := svc.ListSuggestions(ctx, status)
+	if err != nil {
+		return err
+	}
+
+	if taskOutputJSON {
+		if suggestions == nil {
+			suggestions = []db.Suggestion{}
+		}
+		return json.NewEncoder(os.Stdout).Encode(suggestions)
+	}
+
+	if len(suggestions) == 0 {
+		fmt.Printf("No %s suggestions\n", status)
+		return nil
+	}
+
+	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(w, "ID\tTYPE\tTITLE\tTASK\tAUTHOR")
+	for _, s := range suggestions {
+		taskRef := ""
+		if s.TaskID != "" && len(s.TaskID) >= 8 {
+			taskRef = s.TaskID[:8]
+		}
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n",
+			s.ID[:8], s.Type, s.Title, taskRef, s.Author)
+	}
+	return w.Flush()
+}
+
+func runTaskSuggestionAccept(cmd *cobra.Command, args []string) error {
+	svc, cleanup, err := openService()
+	if err != nil {
+		return err
+	}
+	defer cleanup()
+
+	ctx := context.Background()
+	if err := svc.AcceptSuggestion(ctx, args[0]); err != nil {
+		return err
+	}
+
+	if taskOutputJSON {
+		sug, _ := svc.GetSuggestion(ctx, args[0])
+		if sug != nil {
+			return json.NewEncoder(os.Stdout).Encode(sug)
+		}
+	}
+
+	fmt.Println("Suggestion accepted")
+	return nil
+}
+
+func runTaskSuggestionDismiss(cmd *cobra.Command, args []string) error {
+	svc, cleanup, err := openService()
+	if err != nil {
+		return err
+	}
+	defer cleanup()
+
+	ctx := context.Background()
+	if err := svc.DismissSuggestion(ctx, args[0]); err != nil {
+		return err
+	}
+
+	if taskOutputJSON {
+		sug, _ := svc.GetSuggestion(ctx, args[0])
+		if sug != nil {
+			return json.NewEncoder(os.Stdout).Encode(sug)
+		}
+	}
+
+	fmt.Println("Suggestion dismissed")
 	return nil
 }
 

@@ -99,6 +99,51 @@ func Spawn(ctx context.Context, svc board.Service, task db.Task, runner AgentRun
 	return nil
 }
 
+// EnrichmentWindowName returns the tmux window name for an enrichment agent.
+func EnrichmentWindowName(task db.Task) string {
+	return "enrich-" + task.ID[:8]
+}
+
+// SpawnEnrichment launches a short-lived enrichment agent in a tmux window.
+// Unlike Spawn, it does NOT set the task's AgentStatus (preserving work agent state).
+// Instead, it sets EnrichmentStatus and EnrichmentAgentName via partial update.
+func SpawnEnrichment(ctx context.Context, svc board.Service, task db.Task, runner AgentRunner) error {
+	cmd := runner.BuildEnrichmentCommand(SpawnOpts{
+		WorkDir: ".",
+		Task:    task,
+	})
+	if cmd == "" {
+		return fmt.Errorf("runner %s does not support enrichment", runner.ID())
+	}
+
+	if err := tmux.EnsureSession(); err != nil {
+		return fmt.Errorf("tmux: %w", err)
+	}
+
+	winName := EnrichmentWindowName(task)
+
+	// Kill any existing enrichment window for this task
+	_ = tmux.KillWindow(winName)
+
+	if err := tmux.NewWindow(winName, ".", cmd); err != nil {
+		return fmt.Errorf("creating enrichment window: %w", err)
+	}
+
+	// Use UpdateTaskFields (NOT full UpdateTask) to avoid overwriting
+	// concurrent edits to title/description/status by humans or work agents.
+	enriching := db.EnrichmentEnriching
+	runnerID := runner.ID()
+	if err := svc.UpdateTaskFields(ctx, task.ID, db.TaskFieldUpdate{
+		EnrichmentStatus:    &enriching,
+		EnrichmentAgentName: &runnerID,
+	}); err != nil {
+		_ = tmux.KillWindow(winName)
+		return fmt.Errorf("updating enrichment status: %w", err)
+	}
+
+	return nil
+}
+
 // Kill terminates a running agent by killing its tmux window and updating the task.
 // AgentName is preserved so the task remembers which agent was used.
 func Kill(ctx context.Context, svc board.Service, task db.Task) error {

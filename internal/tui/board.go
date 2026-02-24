@@ -68,13 +68,13 @@ func (b *kanban) SetSize(w, h int) {
 	}
 }
 
-func (b *kanban) LoadTasks(tasks []db.Task) {
+func (b *kanban) LoadTasks(tasks []db.Task, deps map[string][]string) {
 	grouped := make(map[db.TaskStatus][]db.Task)
 	for _, t := range tasks {
 		grouped[t.Status] = append(grouped[t.Status], t)
 	}
 	for i, status := range columnOrder {
-		b.columns[i].SetItems(grouped[status])
+		b.columns[i].SetItems(grouped[status], deps)
 	}
 }
 

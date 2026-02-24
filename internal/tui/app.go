@@ -73,15 +73,21 @@ type App struct {
 	pendingRecons map[string]pendingRecon
 	// lastTasks caches the latest task list for reconciliation.
 	lastTasks []db.Task
+	// lastDeps caches the latest dependency map for board reloads.
+	lastDeps map[string][]string
 	// cursorFollow stores where to move the cursor after the next task reload.
 	cursorFollow *pendingFocus
 	// Server/tunnel status
 	tunnelURL    string
 	peerCount    int
 	serverActive bool
-	// prevAgentStates tracks the last known agent status per task ID for notifications.
+	// Enrichment tracking (from HEAD)
+	enrichmentSeen    map[string]db.EnrichmentStatus // task ID -> last known status
+	enrichmentActive  int                            // current enrichment count
+	enrichmentMaxConc int                            // max concurrent (default 3)
+	// Agent state transition tracking (from main)
 	prevAgentStates map[string]db.AgentStatus
-	// Search state
+	// Search state (from main)
 	searching   bool
 	searchInput textinput.Model
 	searchQuery string
@@ -104,13 +110,15 @@ func NewApp(svc board.Service, opts ...AppOption) App {
 	si.Placeholder = "search tasks..."
 	si.CharLimit = 100
 	a := App{
-		board:            newKanban(),
-		service:          svc,
-		form:             newTaskForm(),
-		availableRunners: agent.AvailableRunners(),
-		pendingRecons:    make(map[string]pendingRecon),
-		prevAgentStates:  make(map[string]db.AgentStatus),
-		searchInput:      si,
+		board:             newKanban(),
+		service:           svc,
+		form:              newTaskForm(),
+		availableRunners:  agent.AvailableRunners(),
+		pendingRecons:     make(map[string]pendingRecon),
+		enrichmentSeen:    make(map[string]db.EnrichmentStatus),
+		enrichmentMaxConc: 3,
+		prevAgentStates:   make(map[string]db.AgentStatus),
+		searchInput:       si,
 	}
 	for _, opt := range opts {
 		opt(&a)
@@ -130,7 +138,7 @@ func (a App) loadTasks() tea.Cmd {
 			return errMsg{err}
 		}
 		// Populate BlockedBy for each task
-		deps, depsErr := a.service.GetAllDependencies(ctx)
+		deps, depsErr := a.service.ListAllDependencies(ctx)
 		if depsErr != nil {
 			log.Printf("warning: loading dependencies: %v", depsErr)
 		}
@@ -141,7 +149,7 @@ func (a App) loadTasks() tea.Cmd {
 				}
 			}
 		}
-		return tasksLoadedMsg{tasks: tasks}
+		return tasksLoadedMsg{tasks: tasks, deps: deps}
 	}
 }
 
@@ -167,7 +175,8 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tasksLoadedMsg:
 		a.lastTasks = msg.tasks
-		a.board.LoadTasks(a.filteredTasks(msg.tasks))
+		a.lastDeps = msg.deps
+		a.board.LoadTasks(a.filteredTasks(msg.tasks), a.lastDeps)
 		// Follow cursor to the column where a task was just moved
 		if a.cursorFollow != nil {
 			a.board.FocusOnStatus(a.cursorFollow.newStatus)
@@ -176,7 +185,7 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		// Startup reconciliation: check for stale active states
 		a.reconcileStaleOnStartup()
-		// Check for agent state transitions → notifications
+		// Check for agent state transitions -> notifications
 		cmds := a.checkAgentTransitions(msg.tasks)
 		if len(cmds) > 0 {
 			return a, tea.Batch(cmds...)
@@ -197,7 +206,7 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.loadTasks(),
 			a.notify(fmt.Sprintf("Moved to %s", msg.newStatus)),
 		}
-		// Auto-respawn agent if it was active (new column → new workflow)
+		// Auto-respawn agent if it was active (new column -> new workflow)
 		if msg.hadAgent {
 			cmds = append(cmds, a.respawnAgent(msg.taskID, msg.newStatus))
 		}
@@ -218,7 +227,11 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		)
 
 	case agentTickMsg:
-		cmds := a.reconcileAgents()
+		// Cache tmux.ListWindows() once per tick (shared across reconciliation functions)
+		windows, _ := tmux.ListWindows()
+		cmds := a.reconcileAgentsWithWindows(windows)
+		cmds = append(cmds, a.reconcileEnrichments(windows)...)
+		cmds = append(cmds, a.checkForEnrichableNewTasks()...)
 		cmds = append(cmds, a.scheduleAgentTick(), a.loadTasks())
 		return a, tea.Batch(cmds...)
 
@@ -300,9 +313,14 @@ func (a *App) reconcileStaleOnStartup() {
 // reconcileAgents checks agent windows and manages the grace period state machine.
 // Returns commands for any DB updates that need to happen.
 func (a *App) reconcileAgents() []tea.Cmd {
+	windows, _ := tmux.ListWindows()
+	return a.reconcileAgentsWithWindows(windows)
+}
+
+// reconcileAgentsWithWindows uses a pre-fetched window map to avoid duplicate tmux calls.
+func (a *App) reconcileAgentsWithWindows(windows map[string]bool) []tea.Cmd {
 	var cmds []tea.Cmd
 	ctx := context.Background()
-	windows, _ := tmux.ListWindows()
 
 	for _, task := range a.lastTasks {
 		if task.AgentStatus != db.AgentActive {
@@ -312,7 +330,7 @@ func (a *App) reconcileAgents() []tea.Cmd {
 		windowName := agent.WindowName(task)
 
 		if windows[windowName] {
-			// Agent is running — clear any pending reconciliation
+			// Agent is running -- clear any pending reconciliation
 			delete(a.pendingRecons, task.ID)
 			continue
 		}
@@ -320,7 +338,7 @@ func (a *App) reconcileAgents() []tea.Cmd {
 		// Window is dead
 		pending, inGrace := a.pendingRecons[task.ID]
 		if !inGrace {
-			// Just detected — start grace period
+			// Just detected -- start grace period
 			a.pendingRecons[task.ID] = pendingRecon{
 				detectedAt:        time.Now(),
 				columnAtDetection: task.Status,
@@ -329,11 +347,11 @@ func (a *App) reconcileAgents() []tea.Cmd {
 		}
 
 		if time.Since(pending.detectedAt) < gracePeriod {
-			// Still in grace period — wait
+			// Still in grace period -- wait
 			continue
 		}
 
-		// Grace period elapsed — determine outcome
+		// Grace period elapsed -- determine outcome
 		delete(a.pendingRecons, task.ID)
 
 		// Re-read task from DB (agent may have moved it during grace period)
@@ -350,23 +368,23 @@ func (a *App) reconcileAgents() []tea.Cmd {
 		}
 
 		if freshTask.ResetRequested {
-			// Agent wants fresh context — mark idle for respawn
+			// Agent wants fresh context -- mark idle for respawn
 			freshTask.ResetRequested = false
 			freshTask.AgentStatus = db.AgentIdle
 			freshTask.AgentStartedAt = ""
 			freshTask.AgentSpawnedStatus = ""
 			freshTask.AgentActivity = ""
 			a.service.UpdateTask(ctx, freshTask)
-			cmds = append(cmds, a.notify("Agent reset requested — ready for respawn"))
+			cmds = append(cmds, a.notify("Agent reset requested -- ready for respawn"))
 		} else if freshTask.Status != baseline {
-			// Task moved to a new column — agent completed successfully
+			// Task moved to a new column -- agent completed successfully
 			freshTask.AgentStatus = db.AgentCompleted
 			freshTask.AgentStartedAt = ""
 			freshTask.AgentSpawnedStatus = ""
 			freshTask.AgentActivity = ""
 			a.service.UpdateTask(ctx, freshTask)
 		} else {
-			// Task still in same column — agent crashed/failed
+			// Task still in same column -- agent crashed/failed
 			freshTask.AgentStatus = db.AgentError
 			freshTask.AgentStartedAt = ""
 			freshTask.AgentSpawnedStatus = ""
@@ -581,7 +599,7 @@ func (a App) updateBoard(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if a.searchQuery != "" {
 				a.searchQuery = ""
 				a.searchInput.SetValue("")
-				a.board.LoadTasks(a.lastTasks)
+				a.board.LoadTasks(a.lastTasks, a.lastDeps)
 				return a, nil
 			}
 			return a, nil
@@ -609,7 +627,7 @@ func (a App) updateBoard(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if a.mode == modeAgent && task.AgentStatus == db.AgentActive {
 					return a, a.viewAgent(*task)
 				}
-				a.detail = newTaskDetail(*task)
+				a.detail = newTaskDetail(*task, a.service)
 				a.detail.SetSize(a.width, a.height)
 				a.overlay = overlayDetail
 			}
@@ -682,7 +700,7 @@ func (a App) updateSearch(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.searchInput.SetValue("")
 			a.searchInput.Blur()
 			// Reload with all tasks
-			a.board.LoadTasks(a.lastTasks)
+			a.board.LoadTasks(a.lastTasks, a.lastDeps)
 			return a, nil
 		case key.Matches(msg, keys.Enter):
 			a.searching = false
@@ -697,7 +715,7 @@ func (a App) updateSearch(msg tea.Msg) (tea.Model, tea.Cmd) {
 	a.searchInput, cmd = a.searchInput.Update(msg)
 	// Live filter as user types
 	a.searchQuery = a.searchInput.Value()
-	a.board.LoadTasks(a.filteredTasks(a.lastTasks))
+	a.board.LoadTasks(a.filteredTasks(a.lastTasks), a.lastDeps)
 	return a, cmd
 }
 
@@ -768,10 +786,10 @@ func (a App) helpView() string {
 	help := `Agentboard - Keyboard Shortcuts
 
 Navigation:
-  h / ←     Previous column
-  l / →     Next column
-  j / ↓     Next task
-  k / ↑     Previous task
+  h / <-     Previous column
+  l / ->     Next column
+  j / v      Next task
+  k / ^      Previous task
 
 Actions:
   o         Create new task
@@ -991,13 +1009,13 @@ func (a App) respawnAgent(taskID string, newStatus db.TaskStatus) tea.Cmd {
 
 		// Guard: skip respawn if agent was already spawned for this column
 		if task.AgentSpawnedStatus == string(task.Status) {
-			return notifyMsg{text: "Agent already working on this column — skipping respawn"}
+			return notifyMsg{text: "Agent already working on this column -- skipping respawn"}
 		}
 
 		// Look up the runner the task was previously using
 		runner := agent.GetRunner(task.AgentName)
 		if runner == nil || !runner.Available() {
-			// Agent no longer available — mark as error
+			// Agent no longer available -- mark as error
 			task.AgentStatus = db.AgentError
 			task.AgentStartedAt = ""
 			task.AgentSpawnedStatus = ""
@@ -1023,4 +1041,110 @@ func (a App) killAgent(task db.Task) tea.Cmd {
 		}
 		return agentKilledMsg{taskID: task.ID}
 	}
+}
+
+// reconcileEnrichments checks enrichment agent windows and updates status when done.
+func (a *App) reconcileEnrichments(windows map[string]bool) []tea.Cmd {
+	var cmds []tea.Cmd
+	ctx := context.Background()
+
+	for _, task := range a.lastTasks {
+		if task.EnrichmentStatus != db.EnrichmentEnriching {
+			continue
+		}
+
+		winName := agent.EnrichmentWindowName(task)
+		if windows[winName] {
+			continue // Still running
+		}
+
+		// Window dead -- check if task was updated
+		freshTask, err := a.service.GetTask(ctx, task.ID)
+		if err != nil {
+			continue
+		}
+
+		var newStatus db.EnrichmentStatus
+		if freshTask.UpdatedAt.After(task.UpdatedAt) {
+			newStatus = db.EnrichmentDone
+		} else {
+			newStatus = db.EnrichmentError
+		}
+
+		empty := ""
+		a.service.UpdateTaskFields(ctx, task.ID, db.TaskFieldUpdate{
+			EnrichmentStatus:    &newStatus,
+			EnrichmentAgentName: &empty,
+		})
+		a.enrichmentActive--
+		if a.enrichmentActive < 0 {
+			a.enrichmentActive = 0
+		}
+
+		status := "enriched"
+		if newStatus == db.EnrichmentError {
+			status = "enrichment failed"
+		}
+		cmds = append(cmds, a.notify(fmt.Sprintf("Task %s: %s", freshTask.Title, status)))
+	}
+	return cmds
+}
+
+// checkForEnrichableNewTasks spawns enrichment agents for tasks with pending enrichment status.
+func (a *App) checkForEnrichableNewTasks() []tea.Cmd {
+	var cmds []tea.Cmd
+
+	if len(a.availableRunners) == 0 {
+		return nil
+	}
+	if !tmux.InTmux() {
+		return nil
+	}
+
+	for _, task := range a.lastTasks {
+		if task.EnrichmentStatus != db.EnrichmentPending {
+			continue
+		}
+
+		// Skip if already seen as pending (avoids re-spawning)
+		if a.enrichmentSeen[task.ID] == db.EnrichmentPending {
+			continue
+		}
+
+		// Cap concurrent enrichments
+		if a.enrichmentActive >= a.enrichmentMaxConc {
+			break
+		}
+
+		// Find a runner that supports enrichment
+		var runner agent.AgentRunner
+		for _, r := range a.availableRunners {
+			if r.BuildEnrichmentCommand(agent.SpawnOpts{WorkDir: ".", Task: task}) != "" {
+				runner = r
+				break
+			}
+		}
+		if runner == nil {
+			// No runner supports enrichment -- mark skipped
+			skipped := db.EnrichmentSkipped
+			a.service.UpdateTaskFields(context.Background(), task.ID, db.TaskFieldUpdate{
+				EnrichmentStatus: &skipped,
+			})
+			continue
+		}
+
+		a.enrichmentSeen[task.ID] = db.EnrichmentPending
+		a.enrichmentActive++
+
+		t := task
+		r := runner
+		cmds = append(cmds, func() tea.Msg {
+			if err := agent.SpawnEnrichment(context.Background(), a.service, t, r); err != nil {
+				return errMsg{fmt.Errorf("enrichment spawn: %w", err)}
+			}
+			return notifyMsg{text: fmt.Sprintf("Enriching: %s", t.Title)}
+		})
+	}
+
+	return cmds
 }

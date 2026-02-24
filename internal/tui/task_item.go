@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/charmbracelet/lipgloss"
@@ -10,7 +11,8 @@ import (
 )
 
 type taskItem struct {
-	task db.Task
+	task     db.Task
+	depCount int
 }
 
 func (t taskItem) Title() string {
@@ -22,7 +24,7 @@ func (t taskItem) Title() string {
 }
 
 func (t taskItem) Description() string {
-	// Prefer activity when agent is active; otherwise show assignee
+	// Prefer activity when agent is active
 	if t.task.AgentActivity != "" {
 		activity := t.task.AgentActivity
 		if len(activity) > 30 {
@@ -30,18 +32,42 @@ func (t taskItem) Description() string {
 		}
 		return "▸ " + activity
 	}
+
+	var parts []string
 	if t.task.Assignee != "" {
-		return fmt.Sprintf("@%s", t.task.Assignee)
+		parts = append(parts, fmt.Sprintf("@%s", t.task.Assignee))
 	}
-	return ""
+	if badge := t.enrichmentBadge(); badge != "" {
+		parts = append(parts, badge)
+	}
+	if t.depCount > 0 {
+		parts = append(parts, fmt.Sprintf("[%d deps]", t.depCount))
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return strings.Join(parts, " ")
+}
+
+func (t taskItem) enrichmentBadge() string {
+	switch t.task.EnrichmentStatus {
+	case db.EnrichmentPending:
+		return enrichmentPendingStyle.Render("[enrich:pending]")
+	case db.EnrichmentEnriching:
+		return enrichmentActiveStyle.Render("[enriching...]")
+	case db.EnrichmentDone:
+		return enrichmentDoneStyle.Render("[enriched]")
+	case db.EnrichmentError:
+		return enrichmentErrorStyle.Render("[enrich:error]")
+	default:
+		return ""
+	}
 }
 
 func (t taskItem) FilterValue() string {
 	return t.task.Title
 }
 
-// statusPrefix returns the color-coded status indicator dot.
-// Priority: Active > Done > Completed > Error > Idle.
 func (t taskItem) statusPrefix() string {
 	switch {
 	case t.task.AgentStatus == db.AgentActive:
@@ -66,7 +92,6 @@ func (t taskItem) statusPrefix() string {
 	}
 }
 
-// cardTintStyle returns the background tint style for the task card.
 func (t taskItem) cardTintStyle() lipgloss.Style {
 	switch {
 	case t.task.AgentStatus == db.AgentActive:
@@ -82,14 +107,11 @@ func (t taskItem) cardTintStyle() lipgloss.Style {
 	}
 }
 
-// agentAbbrev returns a short label for the agent type shown in the board view.
 func agentAbbrev(agentName string) string {
 	if r := agent.GetRunner(agentName); r != nil {
 		name := r.Name()
-		// Use first two chars of each word: "Claude Code" → "CC", "Cursor" → "Cu"
 		words := []rune(name)
 		if len(words) >= 2 {
-			// Check for multi-word names
 			for i, ch := range name {
 				if ch == ' ' && i+1 < len(name) {
 					return string([]rune(name)[0:1]) + string([]rune(name)[i+1:i+2])

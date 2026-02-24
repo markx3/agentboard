@@ -19,6 +19,8 @@ const (
 	MsgTaskDelete  = "task.delete"
 	MsgTaskClaim   = "task.claim"
 	MsgTaskUnclaim = "task.unclaim"
+	MsgTaskUpdate  = "task.update"
+	MsgTaskComment = "task.comment"
 	MsgPeerJoin    = "peer.join"
 	MsgPeerLeave   = "peer.leave"
 	MsgPing        = "ping"
@@ -49,6 +51,18 @@ type TaskClaimPayload struct {
 
 type TaskUnclaimPayload struct {
 	TaskID string `json:"task_id"`
+}
+
+type TaskUpdatePayload struct {
+	TaskID      string  `json:"task_id"`
+	Title       *string `json:"title,omitempty"`
+	Description *string `json:"description,omitempty"`
+}
+
+type TaskCommentPayload struct {
+	TaskID string `json:"task_id"`
+	Author string `json:"author"`
+	Body   string `json:"body"`
 }
 
 type PeerPayload struct {

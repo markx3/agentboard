@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
@@ -8,6 +9,7 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/marcosfelipeeipper/agentboard/internal/agent"
+	"github.com/marcosfelipeeipper/agentboard/internal/board"
 	"github.com/marcosfelipeeipper/agentboard/internal/db"
 )
 
@@ -21,21 +23,26 @@ const (
 )
 
 type taskDetail struct {
-	task   db.Task
-	width  int
-	height int
+	task         db.Task
+	dependencies []string
+	comments     []db.Comment
+	width        int
+	height       int
 
 	// Edit mode
 	editing    bool
 	editField  int
-	inputs     [4]textinput.Model // title, assignee, branch, pr_url
+	inputs     [4]textinput.Model
 	descInput  textarea.Model
 	saveNeeded bool
-	titleEmpty bool // validation flag shown in edit view
+	titleEmpty bool
 }
 
-func newTaskDetail(task db.Task) taskDetail {
-	return taskDetail{task: task}
+func newTaskDetail(task db.Task, svc board.Service) taskDetail {
+	ctx := context.Background()
+	deps, _ := svc.ListDependencies(ctx, task.ID)
+	comments, _ := svc.ListComments(ctx, task.ID)
+	return taskDetail{task: task, dependencies: deps, comments: comments}
 }
 
 func (d *taskDetail) SetSize(w, h int) {
@@ -47,29 +54,24 @@ func (d *taskDetail) enterEditMode() {
 	d.editing = true
 	d.editField = editFieldTitle
 
-	// Title
 	d.inputs[0] = textinput.New()
 	d.inputs[0].Placeholder = "Title..."
 	d.inputs[0].CharLimit = 500
 	d.inputs[0].SetValue(d.task.Title)
 	d.inputs[0].Focus()
 
-	// Assignee
 	d.inputs[1] = textinput.New()
 	d.inputs[1].Placeholder = "Assignee..."
 	d.inputs[1].SetValue(d.task.Assignee)
 
-	// Branch
 	d.inputs[2] = textinput.New()
 	d.inputs[2].Placeholder = "Branch name..."
 	d.inputs[2].SetValue(d.task.BranchName)
 
-	// PR URL
 	d.inputs[3] = textinput.New()
 	d.inputs[3].Placeholder = "PR URL..."
 	d.inputs[3].SetValue(d.task.PRUrl)
 
-	// Description
 	d.descInput = textarea.New()
 	d.descInput.Placeholder = "Description..."
 	d.descInput.SetHeight(5)
@@ -83,7 +85,6 @@ func (d *taskDetail) enterEditMode() {
 }
 
 func (d *taskDetail) focusField(field int) {
-	// Blur all
 	for i := range d.inputs {
 		d.inputs[i].Blur()
 	}
@@ -109,7 +110,6 @@ func (d *taskDetail) nextField() {
 	d.focusField(next)
 }
 
-// applyEdits validates and applies edits. Returns false if validation fails.
 func (d *taskDetail) applyEdits() bool {
 	title := strings.TrimSpace(d.inputs[0].Value())
 	if title == "" {
@@ -145,11 +145,10 @@ func (d taskDetail) Update(msg tea.Msg) (taskDetail, tea.Cmd) {
 		}
 	}
 
-	// Update the focused field
 	var cmd tea.Cmd
 	switch d.editField {
 	case editFieldTitle:
-		d.titleEmpty = false // clear validation error on input
+		d.titleEmpty = false
 		d.inputs[0], cmd = d.inputs[0].Update(msg)
 	case editFieldDesc:
 		d.descInput, cmd = d.descInput.Update(msg)
@@ -217,6 +216,31 @@ func (d taskDetail) readView() string {
 		lines = append(lines, fmt.Sprintf("PR:      %s", t.PRUrl))
 	}
 
+	if t.EnrichmentStatus != "" && t.EnrichmentStatus != db.EnrichmentNone {
+		enrichStr := fmt.Sprintf("Enrich:  %s", t.EnrichmentStatus)
+		switch t.EnrichmentStatus {
+		case db.EnrichmentEnriching:
+			enrichStr = enrichmentActiveStyle.Render(enrichStr)
+		case db.EnrichmentDone:
+			enrichStr = enrichmentDoneStyle.Render(enrichStr)
+		case db.EnrichmentError:
+			enrichStr = enrichmentErrorStyle.Render(enrichStr)
+		}
+		lines = append(lines, enrichStr)
+	}
+
+	if len(d.dependencies) > 0 {
+		depStrs := make([]string, len(d.dependencies))
+		for i, dep := range d.dependencies {
+			if len(dep) >= 8 {
+				depStrs[i] = dep[:8]
+			} else {
+				depStrs[i] = dep
+			}
+		}
+		lines = append(lines, fmt.Sprintf("Deps:    %s", strings.Join(depStrs, ", ")))
+	}
+
 	if len(t.BlockedBy) > 0 {
 		var shortIDs []string
 		for _, id := range t.BlockedBy {
@@ -230,6 +254,14 @@ func (d taskDetail) readView() string {
 	}
 
 	lines = append(lines, "", fmt.Sprintf("Created: %s", t.CreatedAt.Format("2006-01-02 15:04")))
+
+	if len(d.comments) > 0 {
+		lines = append(lines, "", "Comments:")
+		for _, c := range d.comments {
+			lines = append(lines, fmt.Sprintf("  [%s] %s: %s", c.CreatedAt.Format("15:04"), c.Author, c.Body))
+		}
+	}
+
 	lines = append(lines, "", helpStyle.Render("esc: close | e: edit | m/M: move | a: spawn agent | v: view | A: kill agent | x: delete"))
 
 	content := strings.Join(lines, "\n")

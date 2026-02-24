@@ -36,6 +36,10 @@ func (c *CursorRunner) BuildCommand(opts SpawnOpts) string {
 	return fmt.Sprintf("agent %s", shellQuote(prompt))
 }
 
+func (c *CursorRunner) BuildEnrichmentCommand(opts SpawnOpts) string {
+	return "" // Cursor enrichment not supported in v1
+}
+
 func buildCursorPrompt(opts SpawnOpts) string {
 	task := opts.Task
 	shortID := task.ID[:8]
