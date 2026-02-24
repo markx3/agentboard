@@ -50,6 +50,7 @@ func runStatus(cmd *cobra.Command, args []string) error {
 	summary := boardSummary{
 		Columns: map[string]int{
 			string(db.StatusBacklog):    counts[string(db.StatusBacklog)],
+			string(db.StatusBrainstorm): counts[string(db.StatusBrainstorm)],
 			string(db.StatusPlanning):   counts[string(db.StatusPlanning)],
 			string(db.StatusInProgress): counts[string(db.StatusInProgress)],
 			string(db.StatusReview):     counts[string(db.StatusReview)],
@@ -65,6 +66,7 @@ func runStatus(cmd *cobra.Command, args []string) error {
 	fmt.Printf("Agentboard Status\n")
 	fmt.Printf("─────────────────\n")
 	fmt.Printf("Backlog:     %d\n", summary.Columns[string(db.StatusBacklog)])
+	fmt.Printf("Brainstorm:  %d\n", summary.Columns[string(db.StatusBrainstorm)])
 	fmt.Printf("Planning:    %d\n", summary.Columns[string(db.StatusPlanning)])
 	fmt.Printf("In Progress: %d\n", summary.Columns[string(db.StatusInProgress)])
 	fmt.Printf("Review:      %d\n", summary.Columns[string(db.StatusReview)])

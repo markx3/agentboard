@@ -179,7 +179,7 @@ func runTaskMove(cmd *cobra.Command, args []string) error {
 	taskID := args[0]
 	newStatus := db.TaskStatus(args[1])
 	if !newStatus.Valid() {
-		return fmt.Errorf("invalid status: %s (use: backlog, planning, in_progress, review, done)", args[1])
+		return fmt.Errorf("invalid status: %s (use: backlog, brainstorm, planning, in_progress, review, done)", args[1])
 	}
 
 	// Find task by prefix
