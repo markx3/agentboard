@@ -127,11 +127,12 @@ func TestClaudeRunnerStagePrompts(t *testing.T) {
 	runner := &ClaudeRunner{}
 
 	tests := []struct {
-		status        db.TaskStatus
-		wantSysStage  string
-		wantInitial   string
+		status       db.TaskStatus
+		wantSysStage string
+		wantInitial  string
 	}{
-		{db.StatusBacklog, "Backlog", "/workflows:brainstorm"},
+		{db.StatusBacklog, "Backlog", "Move it to brainstorm"},
+		{db.StatusBrainstorm, "Brainstorm", "/workflows:brainstorm"},
 		{db.StatusPlanning, "Planning", "/workflows:plan"},
 		{db.StatusInProgress, "In Progress", "/workflows:work"},
 		{db.StatusDone, "Done", "Verify the pull request"},

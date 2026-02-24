@@ -49,7 +49,11 @@ func buildClaudeSystemPrompt(opts SpawnOpts) string {
 
 	switch task.Status {
 	case db.StatusBacklog:
-		b.WriteString("STAGE: Backlog — Project Ideation\n")
+		b.WriteString("STAGE: Backlog — Unplanned\n")
+		b.WriteString("Move to brainstorm to begin work:\n")
+		fmt.Fprintf(&b, "  agentboard task move %s brainstorm\n", shortID)
+	case db.StatusBrainstorm:
+		b.WriteString("STAGE: Brainstorm — Exploring Ideas\n")
 		b.WriteString("When brainstorming is complete, move to planning:\n")
 		fmt.Fprintf(&b, "  agentboard task move %s planning\n", shortID)
 	case db.StatusPlanning:
@@ -75,6 +79,8 @@ func buildClaudeSystemPrompt(opts SpawnOpts) string {
 func buildClaudeInitialPrompt(opts SpawnOpts) string {
 	switch opts.Task.Status {
 	case db.StatusBacklog:
+		return "This task is in backlog. Move it to brainstorm to begin work."
+	case db.StatusBrainstorm:
 		return "Run /workflows:brainstorm to explore ideas for this task."
 	case db.StatusPlanning:
 		return "Run /workflows:plan to create a detailed implementation plan for this task."
