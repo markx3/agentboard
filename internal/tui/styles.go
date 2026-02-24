@@ -73,4 +73,8 @@ var (
 
 	peerCountStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#bd93f9")) // Purple
+
+	summaryBarStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#8be9fd")).
+			Padding(0, 1)
 )

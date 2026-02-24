@@ -76,6 +76,8 @@ type App struct {
 	tunnelURL    string
 	peerCount    int
 	serverActive bool
+	// prevAgentStates tracks the last known agent status per task ID for notifications.
+	prevAgentStates map[string]db.AgentStatus
 }
 
 // AppOption configures optional App behavior.
@@ -96,6 +98,7 @@ func NewApp(svc board.Service, opts ...AppOption) App {
 		form:             newTaskForm(),
 		availableRunners: agent.AvailableRunners(),
 		pendingRecons:    make(map[string]pendingRecon),
+		prevAgentStates:  make(map[string]db.AgentStatus),
 	}
 	for _, opt := range opts {
 		opt(&a)
@@ -148,6 +151,11 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		// Startup reconciliation: check for stale active states
 		a.reconcileStaleOnStartup()
+		// Check for agent state transitions → notifications
+		cmds := a.checkAgentTransitions(msg.tasks)
+		if len(cmds) > 0 {
+			return a, tea.Batch(cmds...)
+		}
 		return a, nil
 
 	case taskCreatedMsg:
@@ -342,6 +350,32 @@ func (a *App) reconcileAgents() []tea.Cmd {
 		}
 	}
 
+	return cmds
+}
+
+// checkAgentTransitions detects agent state changes and fires notifications.
+func (a *App) checkAgentTransitions(tasks []db.Task) []tea.Cmd {
+	var cmds []tea.Cmd
+	for _, task := range tasks {
+		prev, known := a.prevAgentStates[task.ID]
+		a.prevAgentStates[task.ID] = task.AgentStatus
+
+		if !known {
+			continue
+		}
+		if prev == task.AgentStatus {
+			continue
+		}
+
+		// Agent just completed or errored
+		if task.AgentStatus == db.AgentCompleted {
+			cmds = append(cmds, tea.Printf("\a")) // terminal bell
+			cmds = append(cmds, a.notify(fmt.Sprintf("Agent completed: %s", task.Title)))
+		} else if task.AgentStatus == db.AgentError {
+			cmds = append(cmds, tea.Printf("\a"))
+			cmds = append(cmds, a.notify(fmt.Sprintf("Agent error: %s", task.Title)))
+		}
+	}
 	return cmds
 }
 
@@ -599,6 +633,7 @@ func (a App) View() string {
 		return "Loading..."
 	}
 
+	summaryBar := a.board.summaryBar()
 	boardView := a.board.View()
 	statusBar := a.board.statusBar()
 
@@ -618,7 +653,7 @@ func (a App) View() string {
 	}
 	help := helpStyle.Render(fmt.Sprintf(" %s  h/l:columns  j/k:tasks  tab:mode  o:new  m/M:move  a:agent  v:view  enter:open  x:del  ?:help  q:quit", modeStr))
 
-	mainView := lipgloss.JoinVertical(lipgloss.Left, boardView, statusBar, help)
+	mainView := lipgloss.JoinVertical(lipgloss.Left, summaryBar, boardView, statusBar, help)
 
 	// Overlay rendering
 	switch a.overlay {
