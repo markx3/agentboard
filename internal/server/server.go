@@ -15,26 +15,32 @@ import (
 )
 
 type Server struct {
-	hub      *Hub
-	addr     string
-	listener net.Listener
+	hub          *Hub
+	addr         string
+	listener     net.Listener
+	tunnelActive bool
 }
 
-var upgrader = websocket.Upgrader{
-	ReadBufferSize:  1024,
-	WriteBufferSize: 1024,
-	CheckOrigin: func(r *http.Request) bool {
-		origin := r.Header.Get("Origin")
-		if origin == "" {
-			return true // non-browser clients
-		}
-		u, err := url.Parse(origin)
-		if err != nil {
-			return false
-		}
-		host := u.Hostname()
-		return host == "127.0.0.1" || host == "localhost" || host == "::1"
-	},
+func newUpgrader(tunnelActive bool) websocket.Upgrader {
+	return websocket.Upgrader{
+		ReadBufferSize:  1024,
+		WriteBufferSize: 1024,
+		CheckOrigin: func(r *http.Request) bool {
+			if tunnelActive {
+				return true // GitHub auth is the real gate
+			}
+			origin := r.Header.Get("Origin")
+			if origin == "" {
+				return true // non-browser clients
+			}
+			u, err := url.Parse(origin)
+			if err != nil {
+				return false
+			}
+			host := u.Hostname()
+			return host == "127.0.0.1" || host == "localhost" || host == "::1"
+		},
+	}
 }
 
 func New(svc board.Service, host string, port int) *Server {
@@ -46,18 +52,33 @@ func New(svc board.Service, host string, port int) *Server {
 	}
 }
 
+// SetListener sets an external listener (e.g. ngrok) for the server to use.
+func (s *Server) SetListener(ln net.Listener) {
+	s.listener = ln
+	s.tunnelActive = true
+}
+
+// Hub returns the server's Hub for client count access.
+func (s *Server) Hub() *Hub {
+	return s.hub
+}
+
 func (s *Server) Start(ctx context.Context) error {
 	go s.hub.Run(ctx)
 
+	upgrader := newUpgrader(s.tunnelActive)
 	mux := http.NewServeMux()
 	mux.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
-		s.handleWS(ctx, w, r)
+		s.handleWS(ctx, w, r, upgrader)
 	})
 
-	var err error
-	s.listener, err = net.Listen("tcp", s.addr)
-	if err != nil {
-		return fmt.Errorf("listening on %s: %w", s.addr, err)
+	// Use pre-set listener (e.g. ngrok) or create a local one
+	if s.listener == nil {
+		var err error
+		s.listener, err = net.Listen("tcp", s.addr)
+		if err != nil {
+			return fmt.Errorf("listening on %s: %w", s.addr, err)
+		}
 	}
 
 	log.Printf("WebSocket server listening on %s", s.listener.Addr().String())
@@ -81,7 +102,7 @@ func (s *Server) Addr() string {
 	return s.addr
 }
 
-func (s *Server) handleWS(ctx context.Context, w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleWS(ctx context.Context, w http.ResponseWriter, r *http.Request, upgrader websocket.Upgrader) {
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		log.Printf("upgrade error: %v", err)
