@@ -120,5 +120,24 @@ func (d *DB) migrate(ctx context.Context) error {
 		}
 	}
 
+	if currentVersion < 4 {
+		tx, txErr := d.conn.BeginTx(ctx, nil)
+		if txErr != nil {
+			return fmt.Errorf("beginning v4 migration transaction: %w", txErr)
+		}
+		defer tx.Rollback()
+
+		if _, txErr = tx.ExecContext(ctx, migrateV3toV4); txErr != nil {
+			return fmt.Errorf("applying v4 migration: %w", txErr)
+		}
+		if _, txErr = tx.ExecContext(ctx,
+			"INSERT OR REPLACE INTO schema_version (version) VALUES (4)"); txErr != nil {
+			return fmt.Errorf("updating schema version to 4: %w", txErr)
+		}
+		if txErr = tx.Commit(); txErr != nil {
+			return fmt.Errorf("committing v4 migration: %w", txErr)
+		}
+	}
+
 	return nil
 }
