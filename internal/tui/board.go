@@ -10,6 +10,7 @@ import (
 
 var columnOrder = []db.TaskStatus{
 	db.StatusBacklog,
+	db.StatusBrainstorm,
 	db.StatusPlanning,
 	db.StatusInProgress,
 	db.StatusReview,
@@ -18,6 +19,7 @@ var columnOrder = []db.TaskStatus{
 
 var columnTitles = map[db.TaskStatus]string{
 	db.StatusBacklog:    "Backlog",
+	db.StatusBrainstorm: "Brainstorm",
 	db.StatusPlanning:   "Planning",
 	db.StatusInProgress: "In Progress",
 	db.StatusReview:     "Review",
