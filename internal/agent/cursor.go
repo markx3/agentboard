@@ -50,7 +50,12 @@ func buildCursorPrompt(opts SpawnOpts) string {
 
 	switch task.Status {
 	case db.StatusBacklog:
-		b.WriteString("STAGE: Backlog — Project Ideation\n")
+		b.WriteString("STAGE: Backlog — Unplanned\n")
+		b.WriteString("This task is in the backlog. Move it to brainstorm to begin work.\n")
+		b.WriteString("To move:\n")
+		fmt.Fprintf(&b, "  agentboard task move %s brainstorm\n", shortID)
+	case db.StatusBrainstorm:
+		b.WriteString("STAGE: Brainstorm — Exploring Ideas\n")
 		b.WriteString("Explore ideas and brainstorm approaches for this task.\n")
 		b.WriteString("When brainstorming is complete, move to planning:\n")
 		fmt.Fprintf(&b, "  agentboard task move %s planning\n", shortID)
