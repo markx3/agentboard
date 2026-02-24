@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"fmt"
+	"log"
 	"strings"
 	"time"
 
@@ -129,7 +130,10 @@ func (a App) loadTasks() tea.Cmd {
 			return errMsg{err}
 		}
 		// Populate BlockedBy for each task
-		deps, _ := a.service.GetAllDependencies(ctx)
+		deps, depsErr := a.service.GetAllDependencies(ctx)
+		if depsErr != nil {
+			log.Printf("warning: loading dependencies: %v", depsErr)
+		}
 		if deps != nil {
 			for i := range tasks {
 				if blockers, ok := deps[tasks[i].ID]; ok {
@@ -390,10 +394,10 @@ func (a *App) checkAgentTransitions(tasks []db.Task) []tea.Cmd {
 
 		// Agent just completed or errored
 		if task.AgentStatus == db.AgentCompleted {
-			cmds = append(cmds, tea.Printf("\a")) // terminal bell
+			cmds = append(cmds, bellCmd())
 			cmds = append(cmds, a.notify(fmt.Sprintf("Agent completed: %s", task.Title)))
 		} else if task.AgentStatus == db.AgentError {
-			cmds = append(cmds, tea.Printf("\a"))
+			cmds = append(cmds, bellCmd())
 			cmds = append(cmds, a.notify(fmt.Sprintf("Agent error: %s", task.Title)))
 		}
 	}
@@ -813,7 +817,7 @@ without asking for approval.
 }
 
 // filteredTasks returns tasks filtered by the current search query.
-func (a *App) filteredTasks(tasks []db.Task) []db.Task {
+func (a App) filteredTasks(tasks []db.Task) []db.Task {
 	if a.searchQuery == "" {
 		return tasks
 	}
@@ -830,6 +834,13 @@ func (a *App) filteredTasks(tasks []db.Task) []db.Task {
 }
 
 // Command helpers
+
+func bellCmd() tea.Cmd {
+	return func() tea.Msg {
+		fmt.Print("\a")
+		return nil
+	}
+}
 
 func (a App) notify(text string) tea.Cmd {
 	return func() tea.Msg {
