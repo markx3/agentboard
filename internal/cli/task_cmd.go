@@ -72,9 +72,23 @@ var taskUnclaimCmd = &cobra.Command{
 	RunE:  runTaskUnclaim,
 }
 
-var createTitle string
-var createDesc string
-var claimUser string
+var taskUpdateCmd = &cobra.Command{
+	Use:   "update <task-id>",
+	Short: "Update task fields",
+	Args:  cobra.ExactArgs(1),
+	RunE:  runTaskUpdate,
+}
+
+var (
+	createTitle string
+	createDesc  string
+	claimUser   string
+	updateTitle string
+	updateDesc  string
+	updateAssignee string
+	updateBranch string
+	updatePRUrl  string
+)
 
 func init() {
 	taskListCmd.Flags().StringVar(&taskFilterStatus, "status", "", "filter by status")
@@ -89,7 +103,13 @@ func init() {
 
 	taskClaimCmd.Flags().StringVar(&claimUser, "user", "", "username to claim as")
 
-	taskCmd.AddCommand(taskListCmd, taskCreateCmd, taskMoveCmd, taskGetCmd, taskDeleteCmd, taskClaimCmd, taskUnclaimCmd)
+	taskUpdateCmd.Flags().StringVar(&updateTitle, "title", "", "new title")
+	taskUpdateCmd.Flags().StringVar(&updateDesc, "description", "", "new description")
+	taskUpdateCmd.Flags().StringVar(&updateAssignee, "assignee", "", "new assignee")
+	taskUpdateCmd.Flags().StringVar(&updateBranch, "branch", "", "new branch name")
+	taskUpdateCmd.Flags().StringVar(&updatePRUrl, "pr-url", "", "new PR URL")
+
+	taskCmd.AddCommand(taskListCmd, taskCreateCmd, taskMoveCmd, taskGetCmd, taskDeleteCmd, taskClaimCmd, taskUnclaimCmd, taskUpdateCmd)
 	rootCmd.AddCommand(taskCmd)
 }
 
@@ -319,6 +339,62 @@ func runTaskUnclaim(cmd *cobra.Command, args []string) error {
 	}
 
 	fmt.Println("Task unclaimed")
+	return nil
+}
+
+func runTaskUpdate(cmd *cobra.Command, args []string) error {
+	svc, cleanup, err := openService()
+	if err != nil {
+		return err
+	}
+	defer cleanup()
+
+	ctx := context.Background()
+	tasks, err := svc.ListTasks(ctx)
+	if err != nil {
+		return err
+	}
+	fullID := findByPrefix(tasks, args[0])
+	if fullID == "" {
+		return fmt.Errorf("task not found: %s", args[0])
+	}
+
+	task, err := svc.GetTask(ctx, fullID)
+	if err != nil {
+		return err
+	}
+
+	changed := false
+	if cmd.Flags().Changed("title") {
+		task.Title = updateTitle
+		changed = true
+	}
+	if cmd.Flags().Changed("description") {
+		task.Description = updateDesc
+		changed = true
+	}
+	if cmd.Flags().Changed("assignee") {
+		task.Assignee = updateAssignee
+		changed = true
+	}
+	if cmd.Flags().Changed("branch") {
+		task.BranchName = updateBranch
+		changed = true
+	}
+	if cmd.Flags().Changed("pr-url") {
+		task.PRUrl = updatePRUrl
+		changed = true
+	}
+
+	if !changed {
+		return fmt.Errorf("no fields to update (use --title, --description, --assignee, --branch, --pr-url)")
+	}
+
+	if err := svc.UpdateTask(ctx, task); err != nil {
+		return fmt.Errorf("updating task: %w", err)
+	}
+
+	fmt.Printf("Task %s updated\n", task.ID[:8])
 	return nil
 }
 

@@ -42,6 +42,14 @@ type pendingFocus struct {
 	newStatus db.TaskStatus
 }
 
+// boardMode controls what Enter does on the board.
+type boardMode int
+
+const (
+	modeAgent  boardMode = iota // Enter opens tmux for active tasks (default)
+	modeDetail                  // Enter always opens task detail
+)
+
 type App struct {
 	board        kanban
 	service      board.Service
@@ -53,6 +61,7 @@ type App struct {
 	width        int
 	height       int
 	ready        bool
+	mode         boardMode // Agent mode (default) vs Detail mode
 	// pendingSpawnTask holds a task awaiting skip-permissions confirmation.
 	pendingSpawnTask *db.Task
 	// availableRunners is cached at startup for agent detection.
@@ -165,6 +174,14 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a, tea.Batch(
 			a.loadTasks(),
 			a.notify("Task deleted"),
+		)
+
+	case taskSavedMsg:
+		// Refresh the detail view with saved data
+		a.detail.task = msg.task
+		return a, tea.Batch(
+			a.loadTasks(),
+			a.notify("Task saved"),
 		)
 
 	case agentTickMsg:
@@ -431,9 +448,33 @@ func (a App) updateForm(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (a App) updateDetail(msg tea.Msg) (tea.Model, tea.Cmd) {
+	// If in edit mode, route to the edit handler
+	if a.detail.editing {
+		switch msg := msg.(type) {
+		case tea.KeyMsg:
+			if key.Matches(msg, keys.Escape) {
+				// Cancel edit, return to read view (don't close overlay)
+				a.detail.editing = false
+				return a, nil
+			}
+		}
+		var cmd tea.Cmd
+		a.detail, cmd = a.detail.Update(msg)
+		// Check if save was triggered
+		if a.detail.saveNeeded {
+			a.detail.saveNeeded = false
+			return a, a.saveTask(a.detail.task)
+		}
+		return a, cmd
+	}
+
+	// Read mode: handle detail-level actions
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		switch {
+		case msg.String() == "e":
+			a.detail.enterEditMode()
+			return a, nil
 		case key.Matches(msg, keys.MoveRight):
 			return a, a.moveTask(a.detail.task.ID, a.nextStatus(a.detail.task.Status))
 		case key.Matches(msg, keys.MoveLeft):
@@ -483,9 +524,16 @@ func (a App) updateBoard(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.overlay = overlayForm
 			a.form.Reset()
 			return a, a.form.titleInput.Focus()
+		case key.Matches(msg, keys.Tab):
+			if a.mode == modeAgent {
+				a.mode = modeDetail
+			} else {
+				a.mode = modeAgent
+			}
+			return a, nil
 		case key.Matches(msg, keys.Enter):
 			if task := a.board.SelectedTask(); task != nil {
-				if task.AgentStatus == db.AgentActive {
+				if a.mode == modeAgent && task.AgentStatus == db.AgentActive {
 					return a, a.viewAgent(*task)
 				}
 				a.detail = newTaskDetail(*task)
@@ -564,7 +612,11 @@ func (a App) View() string {
 		statusBar = notificationStyle.Render(a.notification.text)
 	}
 
-	help := helpStyle.Render(" h/l:columns  j/k:tasks  o:new  m/M:move  a:spawn agent  v:view  A:kill  enter:open/view  x:delete  ?:help  q:quit")
+	modeStr := "[Agent]"
+	if a.mode == modeDetail {
+		modeStr = "[Detail]"
+	}
+	help := helpStyle.Render(fmt.Sprintf(" %s  h/l:columns  j/k:tasks  tab:mode  o:new  m/M:move  a:agent  v:view  enter:open  x:del  ?:help  q:quit", modeStr))
 
 	mainView := lipgloss.JoinVertical(lipgloss.Left, boardView, statusBar, help)
 
@@ -608,13 +660,20 @@ Actions:
   o         Create new task
   m         Move task right
   M         Move task left
-  enter     Open task (view agent if active)
+  enter     Open task detail (or view agent in Agent mode)
+  e         Edit task (in detail view)
   x         Delete task
   a         Spawn agent (select if multiple available)
   v         View agent (split pane, Ctrl+q to close)
   A         Kill running agent
 
+Board Modes (toggle with tab):
+  [Agent]   Enter opens agent view for active tasks
+  [Detail]  Enter always opens task detail
+
 General:
+  tab       Toggle Agent/Detail mode
+  /         Search tasks
   ?         Toggle help
   esc       Close overlay
   q         Quit
@@ -655,6 +714,15 @@ func (a App) createTask(title, description string) tea.Cmd {
 			return errMsg{err}
 		}
 		return taskCreatedMsg{task: task}
+	}
+}
+
+func (a App) saveTask(task db.Task) tea.Cmd {
+	return func() tea.Msg {
+		if err := a.service.UpdateTask(context.Background(), &task); err != nil {
+			return errMsg{fmt.Errorf("saving task: %w", err)}
+		}
+		return taskSavedMsg{task: task}
 	}
 }
 

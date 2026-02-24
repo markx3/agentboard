@@ -22,6 +22,10 @@ type taskDeletedMsg struct {
 	taskID string
 }
 
+type taskSavedMsg struct {
+	task db.Task
+}
+
 type errMsg struct {
 	err error
 }
