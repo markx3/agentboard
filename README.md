@@ -254,6 +254,10 @@ go test ./...
 
 The project follows standard Go conventions with an `internal/` package layout. See the [Architecture](#architecture) section for an overview.
 
+## Acknowledgements
+
+Inspired by [agtx](https://github.com/fynnfluegge/agtx) — a terminal-native AI agent orchestration tool.
+
 ## License
 
 [MIT](LICENSE)
