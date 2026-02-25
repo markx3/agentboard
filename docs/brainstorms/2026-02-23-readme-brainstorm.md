@@ -53,7 +53,7 @@ Simple ASCII art. Could use a box-drawing style or figlet-style text. Keep it co
 - At least one AI CLI tool (Claude Code, Cursor, Antigravity, etc.)
 
 ### Installation
-Primary: `go install github.com/marcosfelipeeipper/agentboard/cmd/agentboard@latest`
+Primary: `go install github.com/markx3/agentboard/cmd/agentboard@latest`
 Secondary: Build from source (`go build -o agentboard ./cmd/agentboard`)
 Future: Homebrew tap
 

@@ -4,7 +4,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/marcosfelipeeipper/agentboard/internal/server"
+	"github.com/markx3/agentboard/internal/server"
 )
 
 func TestSequencerMonotonic(t *testing.T) {

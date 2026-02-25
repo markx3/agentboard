@@ -8,7 +8,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/marcosfelipeeipper/agentboard/internal/db"
+	"github.com/markx3/agentboard/internal/db"
 )
 
 var statusJSON bool

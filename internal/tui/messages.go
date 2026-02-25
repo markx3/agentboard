@@ -1,6 +1,6 @@
 package tui
 
-import "github.com/marcosfelipeeipper/agentboard/internal/db"
+import "github.com/markx3/agentboard/internal/db"
 
 type tasksLoadedMsg struct {
 	tasks []db.Task

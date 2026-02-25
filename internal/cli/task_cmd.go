@@ -11,8 +11,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	boardpkg "github.com/marcosfelipeeipper/agentboard/internal/board"
-	"github.com/marcosfelipeeipper/agentboard/internal/db"
+	boardpkg "github.com/markx3/agentboard/internal/board"
+	"github.com/markx3/agentboard/internal/db"
 )
 
 var (

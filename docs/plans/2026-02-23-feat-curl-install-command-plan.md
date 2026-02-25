@@ -54,14 +54,14 @@ var rootCmd = &cobra.Command{
 At build time, inject via ldflags:
 
 ```bash
-go build -ldflags "-X github.com/marcosfelipeeipper/agentboard/internal/cli.Version=v0.1.0" -o agentboard ./cmd/agentboard
+go build -ldflags "-X github.com/markx3/agentboard/internal/cli.Version=v0.1.0" -o agentboard ./cmd/agentboard
 ```
 
 Cobra auto-generates `--version` flag when `Version` is set. Output: `agentboard version v0.1.0`.
 
 **Acceptance criteria:**
 - [x] `agentboard --version` prints `agentboard version dev` when built without ldflags
-- [x] `agentboard --version` prints `agentboard version v0.1.0` when built with `-ldflags "-X github.com/marcosfelipeeipper/agentboard/internal/cli.Version=v0.1.0"`
+- [x] `agentboard --version` prints `agentboard version v0.1.0` when built with `-ldflags "-X github.com/markx3/agentboard/internal/cli.Version=v0.1.0"`
 
 ---
 
@@ -83,7 +83,7 @@ Cobra auto-generates `--version` flag when `Version` is set. Output: `agentboard
 
 **Key details:**
 - Set `CGO_ENABLED=0` for all builds (pure Go, no C toolchain needed)
-- Inject version via ldflags: `-X github.com/marcosfelipeeipper/agentboard/internal/cli.Version=${{ github.ref_name }}`
+- Inject version via ldflags: `-X github.com/markx3/agentboard/internal/cli.Version=${{ github.ref_name }}`
 - **Archive structure:** Each `.tar.gz` contains a single file named `agentboard` at the root (no subdirectory)
 - Generate `checksums.txt` with SHA256 hashes for all archives
 - Release creation is gated on all matrix builds succeeding (`needs: [build]`)
@@ -216,7 +216,7 @@ bash install.sh
 
 ```bash
 # Via go install (requires Go 1.25+)
-go install github.com/marcosfelipeeipper/agentboard/cmd/agentboard@latest
+go install github.com/markx3/agentboard/cmd/agentboard@latest
 
 # Or build from source
 git clone https://github.com/markx3/agentboard.git

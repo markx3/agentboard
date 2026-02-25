@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/marcosfelipeeipper/agentboard/internal/db"
+	"github.com/markx3/agentboard/internal/db"
 )
 
 func TestClaudeRunnerBuildCommand(t *testing.T) {

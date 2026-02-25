@@ -6,8 +6,8 @@ import (
 	"time"
 
 	"github.com/charmbracelet/lipgloss"
-	"github.com/marcosfelipeeipper/agentboard/internal/agent"
-	"github.com/marcosfelipeeipper/agentboard/internal/db"
+	"github.com/markx3/agentboard/internal/agent"
+	"github.com/markx3/agentboard/internal/db"
 )
 
 type taskItem struct {

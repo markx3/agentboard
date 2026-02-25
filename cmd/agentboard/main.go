@@ -3,7 +3,7 @@ package main
 import (
 	"os"
 
-	"github.com/marcosfelipeeipper/agentboard/internal/cli"
+	"github.com/markx3/agentboard/internal/cli"
 )
 
 func main() {

@@ -6,8 +6,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/marcosfelipeeipper/agentboard/internal/board"
-	"github.com/marcosfelipeeipper/agentboard/internal/db"
+	"github.com/markx3/agentboard/internal/board"
+	"github.com/markx3/agentboard/internal/db"
 )
 
 func setupTestService(t *testing.T) board.Service {

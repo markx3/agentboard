@@ -54,7 +54,7 @@ Two methods, verified from source:
 
 ```bash
 # Primary: go install
-go install github.com/marcosfelipeeipper/agentboard/cmd/agentboard@latest
+go install github.com/markx3/agentboard/cmd/agentboard@latest
 
 # Secondary: build from source
 git clone https://github.com/markx3/agentboard.git

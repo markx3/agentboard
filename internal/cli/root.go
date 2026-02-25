@@ -11,11 +11,11 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/spf13/cobra"
 
-	"github.com/marcosfelipeeipper/agentboard/internal/auth"
-	boardpkg "github.com/marcosfelipeeipper/agentboard/internal/board"
-	"github.com/marcosfelipeeipper/agentboard/internal/db"
-	"github.com/marcosfelipeeipper/agentboard/internal/peersync"
-	"github.com/marcosfelipeeipper/agentboard/internal/tui"
+	"github.com/markx3/agentboard/internal/auth"
+	boardpkg "github.com/markx3/agentboard/internal/board"
+	"github.com/markx3/agentboard/internal/db"
+	"github.com/markx3/agentboard/internal/peersync"
+	"github.com/markx3/agentboard/internal/tui"
 )
 
 var connectAddr string

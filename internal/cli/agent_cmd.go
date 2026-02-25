@@ -9,8 +9,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/marcosfelipeeipper/agentboard/internal/agent"
-	"github.com/marcosfelipeeipper/agentboard/internal/db"
+	"github.com/markx3/agentboard/internal/agent"
+	"github.com/markx3/agentboard/internal/db"
 )
 
 var agentCmd = &cobra.Command{

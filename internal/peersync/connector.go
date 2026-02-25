@@ -10,7 +10,7 @@ import (
 	"sync"
 
 	"github.com/gorilla/websocket"
-	"github.com/marcosfelipeeipper/agentboard/internal/server"
+	"github.com/markx3/agentboard/internal/server"
 )
 
 type Connector struct {

@@ -39,7 +39,7 @@ bash install.sh
 
 ```bash
 # Via go install (requires Go 1.25+)
-go install github.com/marcosfelipeeipper/agentboard/cmd/agentboard@latest
+go install github.com/markx3/agentboard/cmd/agentboard@latest
 
 # Or build from source
 git clone https://github.com/markx3/agentboard.git

@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/marcosfelipeeipper/agentboard/internal/server"
+	"github.com/markx3/agentboard/internal/server"
 )
 
 func TestNewMessage(t *testing.T) {

@@ -12,11 +12,11 @@ import (
 
 	"github.com/spf13/cobra"
 
-	boardpkg "github.com/marcosfelipeeipper/agentboard/internal/board"
-	"github.com/marcosfelipeeipper/agentboard/internal/db"
-	"github.com/marcosfelipeeipper/agentboard/internal/peersync"
-	"github.com/marcosfelipeeipper/agentboard/internal/server"
-	"github.com/marcosfelipeeipper/agentboard/internal/tunnel"
+	boardpkg "github.com/markx3/agentboard/internal/board"
+	"github.com/markx3/agentboard/internal/db"
+	"github.com/markx3/agentboard/internal/peersync"
+	"github.com/markx3/agentboard/internal/server"
+	"github.com/markx3/agentboard/internal/tunnel"
 )
 
 var servePort int

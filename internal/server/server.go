@@ -10,8 +10,8 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
-	"github.com/marcosfelipeeipper/agentboard/internal/auth"
-	"github.com/marcosfelipeeipper/agentboard/internal/board"
+	"github.com/markx3/agentboard/internal/auth"
+	"github.com/markx3/agentboard/internal/board"
 )
 
 type Server struct {

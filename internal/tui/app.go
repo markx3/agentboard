@@ -11,10 +11,10 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/marcosfelipeeipper/agentboard/internal/agent"
-	"github.com/marcosfelipeeipper/agentboard/internal/board"
-	"github.com/marcosfelipeeipper/agentboard/internal/db"
-	"github.com/marcosfelipeeipper/agentboard/internal/tmux"
+	"github.com/markx3/agentboard/internal/agent"
+	"github.com/markx3/agentboard/internal/board"
+	"github.com/markx3/agentboard/internal/db"
+	"github.com/markx3/agentboard/internal/tmux"
 )
 
 const (

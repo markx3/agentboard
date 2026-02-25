@@ -1,4 +1,4 @@
-module github.com/marcosfelipeeipper/agentboard
+module github.com/markx3/agentboard
 
 go 1.25.0
 

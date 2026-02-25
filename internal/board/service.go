@@ -3,7 +3,7 @@ package board
 import (
 	"context"
 
-	"github.com/marcosfelipeeipper/agentboard/internal/db"
+	"github.com/markx3/agentboard/internal/db"
 )
 
 // Service defines all task operations.

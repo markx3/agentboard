@@ -11,9 +11,9 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/marcosfelipeeipper/agentboard/internal/board"
-	"github.com/marcosfelipeeipper/agentboard/internal/db"
-	"github.com/marcosfelipeeipper/agentboard/internal/tmux"
+	"github.com/markx3/agentboard/internal/board"
+	"github.com/markx3/agentboard/internal/db"
+	"github.com/markx3/agentboard/internal/tmux"
 )
 
 const maxSlugLen = 50

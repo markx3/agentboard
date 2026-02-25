@@ -6,8 +6,8 @@ import (
 	"log"
 	"sync/atomic"
 
-	"github.com/marcosfelipeeipper/agentboard/internal/board"
-	"github.com/marcosfelipeeipper/agentboard/internal/db"
+	"github.com/markx3/agentboard/internal/board"
+	"github.com/markx3/agentboard/internal/db"
 )
 
 type clientMessage struct {

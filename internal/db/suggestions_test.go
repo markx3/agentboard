@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/marcosfelipeeipper/agentboard/internal/db"
+	"github.com/markx3/agentboard/internal/db"
 )
 
 func TestSuggestionCRUD(t *testing.T) {

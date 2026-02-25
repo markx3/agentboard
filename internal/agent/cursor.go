@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/marcosfelipeeipper/agentboard/internal/db"
+	"github.com/markx3/agentboard/internal/db"
 )
 
 // CursorRunner implements AgentRunner for Cursor CLI ("agent" binary).

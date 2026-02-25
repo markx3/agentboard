@@ -1,6 +1,6 @@
 package agent
 
-import "github.com/marcosfelipeeipper/agentboard/internal/db"
+import "github.com/markx3/agentboard/internal/db"
 
 // AgentRunner abstracts an AI agent CLI.
 type AgentRunner interface {
