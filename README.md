@@ -72,6 +72,10 @@ agentboard --connect host:port     # manual connection
 - **CLI-first design** — TUI for interactive use, subcommands for scripting
 - **SQLite-backed** local persistence
 - **Git worktree isolation** per task
+- **Ngrok tunnel** — expose your board to remote collaborators with `serve --tunnel`
+- **AI enrichment** — automatic task analysis with suggestions and dependency tracking
+- **Task search** — fuzzy search across the board with `/`
+- **Board mode toggle** — switch views with `tab`
 
 ## Key Bindings
 
@@ -87,6 +91,8 @@ agentboard --connect host:port     # manual connection
 | `a` | Spawn agent |
 | `A` | Kill agent |
 | `v` | View agent session |
+| `tab` | Toggle board mode |
+| `/` | Search tasks |
 | `?` | Help |
 | `q` | Quit |
 | `esc` | Close overlay / cancel |
@@ -105,29 +111,55 @@ agentboard --connect host:port     # manual connection
 ### Root command
 
 ```
-agentboard [--connect <host:port>]
+agentboard [--connect <host:port|wss://url>]
 ```
 
-Launches the TUI. Use `--connect` to connect to a specific server instead of auto-discovering.
+Launches the TUI. Use `--connect` to connect to a specific server instead of auto-discovering. Accepts both `host:port` and `wss://` URLs (for ngrok tunnels).
 
 ### Subcommands
 
 | Command | Description | Key Flags |
 |---|---|---|
 | `init` | Initialize project config | -- |
-| `serve` | Start dedicated server (no TUI) | `--port`, `-p` (default: random), `--bind` (default: 127.0.0.1) |
-| `status` | Show board summary | `--json` |
+| `serve` | Start dedicated server (no TUI) | `--port`/`-p` (default: random), `--bind` (default: 127.0.0.1), `--tunnel` |
+| `status` | Show board summary | `--json` (includes agents and enrichments) |
 | `task list` | List tasks | `--status`, `--assignee`, `--json` |
-| `task create` | Create a new task | `--title` (required), `--description` |
+| `task create` | Create a new task | `--title` (required), `--description`, `--no-enrich` |
 | `task move <id> <column>` | Move task to column | -- |
 | `task get <id>` | Get task details | `--json` |
 | `task delete <id>` | Delete a task | -- |
 | `task claim <id>` | Claim a task | `--user` |
 | `task unclaim <id>` | Unclaim a task | -- |
+| `task update <id>` | Update task fields | `--title`, `--description`, `--assignee`, `--branch`, `--pr-url`, `--add-dep`, `--remove-dep` |
+| `task comment <id>` | Add a comment to a task | `--author` (required), `--body` (required) |
+| `task block <id> <blocker-id>` | Mark task as blocked by another | -- |
+| `task unblock <id> <blocker-id>` | Remove a dependency | -- |
+| `task suggest <id>` | Create a suggestion for a task | `--author`, `--title`, `--message` (required) |
+| `task propose` | Propose a new task | `--title` (required), `--description`, `--reason` |
+| `task suggestions` | List suggestions | `--status` (pending/accepted/dismissed) |
+| `task suggestion accept <id>` | Accept a suggestion | -- |
+| `task suggestion dismiss <id>` | Dismiss a suggestion | -- |
+| `agent start <task-id>` | Spawn an agent for a task | -- |
+| `agent kill <task-id>` | Kill a running agent | -- |
+| `agent status <task-id> <msg>` | Update agent activity shown on the board | -- |
+| `agent request-reset <task-id>` | Request fresh context for agent's next stage | -- |
 
-**Valid columns for `task move`:** `backlog`, `planning`, `in_progress`, `review`, `done`
+**Valid columns for `task move`:** `backlog`, `brainstorm`, `planning`, `in_progress`, `review`, `done`
 
 **Task IDs** accept short prefixes (first 8 chars shown in `task list`).
+
+### Ngrok tunnel
+
+To share your board with remote collaborators:
+
+```bash
+# Leader: expose the board via ngrok
+NGROK_AUTHTOKEN=<token> agentboard serve --tunnel
+# → prints: agentboard --connect wss://abc123.ngrok.io
+
+# Peer: connect from anywhere
+agentboard --connect wss://abc123.ngrok.io
+```
 
 ## Configuration
 
@@ -198,15 +230,15 @@ The TUI and CLI subcommands share the same binary and the same SQLite database. 
 | [gorilla/websocket](https://github.com/gorilla/websocket) | WebSocket communication |
 | [modernc.org/sqlite](https://pkg.go.dev/modernc.org/sqlite) | Pure-Go SQLite driver |
 | [google/uuid](https://github.com/google/uuid) | UUID generation |
+| [ngrok/ngrok-go](https://github.com/ngrok/ngrok-go) | Ngrok tunnel integration |
 
 ## Roadmap
 
-Current status: **MVP complete** (Phases 1-5).
+Current status: **v0.2.0** — MVP plus enrichment, tunneling, and full agent CLI.
 
 Planned:
 - Homebrew distribution
 - Enhanced agent detection
-- TLS/WSS for remote connections
 
 ## Contributing
 
