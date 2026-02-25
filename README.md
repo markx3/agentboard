@@ -256,4 +256,4 @@ The project follows standard Go conventions with an `internal/` package layout. 
 
 ## License
 
-<!-- TODO: Choose a license -->
+[MIT](LICENSE)
