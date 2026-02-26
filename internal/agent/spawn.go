@@ -167,10 +167,10 @@ func RunEnrichment(ctx context.Context, svc board.Service, task db.Task, runner 
 		EnrichmentAgentName: &runnerID,
 	})
 	return func() tea.Msg {
-		_ = exec.CommandContext(ctx, "sh", "-c", cmd).Run()
+		runErr := exec.CommandContext(ctx, "sh", "-c", cmd).Run()
 		fresh, err := svc.GetTask(ctx, task.ID)
 		status := db.EnrichmentError
-		if err == nil && fresh.UpdatedAt.After(task.UpdatedAt) {
+		if runErr == nil && err == nil && fresh.UpdatedAt.After(task.UpdatedAt) {
 			status = db.EnrichmentDone
 		}
 		empty := ""
