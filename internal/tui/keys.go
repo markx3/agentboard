@@ -20,7 +20,8 @@ type keyMap struct {
 	Escape      key.Binding
 	Tab         key.Binding
 	Search      key.Binding
-	Suggestions key.Binding
+	Suggestions    key.Binding
+	ToggleEnrich   key.Binding
 }
 
 var keys = keyMap{
@@ -95,5 +96,9 @@ var keys = keyMap{
 	Suggestions: key.NewBinding(
 		key.WithKeys("s"),
 		key.WithHelp("s", "review proposals"),
+	),
+	ToggleEnrich: key.NewBinding(
+		key.WithKeys("E"),
+		key.WithHelp("E", "toggle enrichment"),
 	),
 }

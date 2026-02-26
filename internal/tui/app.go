@@ -637,6 +637,8 @@ func (a App) updateDetail(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case key.Matches(msg, keys.Delete):
 			a.overlay = overlayNone
 			return a, a.deleteTask(a.detail.task.ID)
+		case key.Matches(msg, keys.ToggleEnrich):
+			return a, a.toggleEnrichment(a.detail.task)
 		}
 	}
 
@@ -748,6 +750,11 @@ func (a App) updateBoard(msg tea.Msg) (tea.Model, tea.Cmd) {
 				a.overlay = overlaySuggestions
 			}
 			return a, nil
+		case key.Matches(msg, keys.ToggleEnrich):
+			if task := a.board.SelectedTask(); task != nil {
+				return a, a.toggleEnrichment(*task)
+			}
+			return a, nil
 		}
 	}
 
@@ -820,7 +827,7 @@ func (a App) View() string {
 		if a.searchQuery != "" {
 			filterHint = fmt.Sprintf("  [filter: %s] esc:clear", a.searchQuery)
 		}
-		help = helpStyle.Render(fmt.Sprintf(" %s  h/l:columns  j/k:tasks  tab:mode  o:new  m/M:move  a:agent  v:view  enter:open  s:proposals  /:search  ?:help  q:quit%s", modeStr, filterHint))
+		help = helpStyle.Render(fmt.Sprintf(" %s  h/l:columns  j/k:tasks  tab:mode  o:new  m/M:move  a:agent  v:view  E:enrich  enter:open  s:proposals  /:search  ?:help  q:quit%s", modeStr, filterHint))
 	}
 
 	mainView := lipgloss.JoinVertical(lipgloss.Left, summaryBar, boardView, statusBar, help)
@@ -873,6 +880,7 @@ Actions:
   a         Spawn agent (select if multiple available)
   v         View agent (split pane, Ctrl+q to close)
   A         Kill running agent
+  E         Toggle enrichment on/off for task
 
 Board Modes (toggle with tab):
   [Agent]   Enter opens agent view for active tasks
@@ -1132,6 +1140,33 @@ func (a App) respawnAgent(taskID string, newStatus db.TaskStatus) tea.Cmd {
 			return errMsg{fmt.Errorf("respawn agent: %w", err)}
 		}
 		return agentSpawnedMsg{taskID: taskID}
+	}
+}
+
+// toggleEnrichment flips a task's enrichment between pending (on) and skipped (off).
+// No-op if enrichment is currently running.
+func (a App) toggleEnrichment(task db.Task) tea.Cmd {
+	return func() tea.Msg {
+		ctx := context.Background()
+		var next db.EnrichmentStatus
+		switch task.EnrichmentStatus {
+		case db.EnrichmentEnriching:
+			return notifyMsg{text: "Enrichment already running"}
+		case db.EnrichmentPending, db.EnrichmentNone:
+			next = db.EnrichmentSkipped
+		default: // done, error, skipped
+			next = db.EnrichmentPending
+		}
+		if err := a.service.UpdateTaskFields(ctx, task.ID, db.TaskFieldUpdate{
+			EnrichmentStatus: &next,
+		}); err != nil {
+			return errMsg{fmt.Errorf("toggling enrichment: %w", err)}
+		}
+		label := "enabled"
+		if next == db.EnrichmentSkipped {
+			label = "disabled"
+		}
+		return notifyMsg{text: fmt.Sprintf("Enrichment %s: %s", label, task.Title)}
 	}
 }
 
