@@ -3,7 +3,7 @@ package tui
 import (
 	"testing"
 
-	"github.com/marcosfelipeeipper/agentboard/internal/db"
+	"github.com/markx3/agentboard/internal/db"
 )
 
 func TestPruneEnrichmentSeen(t *testing.T) {

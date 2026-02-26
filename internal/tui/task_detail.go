@@ -7,7 +7,9 @@ import (
 
 	"github.com/charmbracelet/bubbles/textarea"
 	"github.com/charmbracelet/bubbles/textinput"
+	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/markx3/agentboard/internal/agent"
 	"github.com/markx3/agentboard/internal/board"
 	"github.com/markx3/agentboard/internal/db"
@@ -28,6 +30,7 @@ type taskDetail struct {
 	comments     []db.Comment
 	width        int
 	height       int
+	vp           viewport.Model
 
 	// Edit mode
 	editing    bool
@@ -47,6 +50,13 @@ func newTaskDetail(task db.Task, svc board.Service) taskDetail {
 func (d *taskDetail) SetSize(w, h int) {
 	d.width = w
 	d.height = h
+	vpW := w/2 - 6
+	vpH := h - 10
+	if vpH < 5 {
+		vpH = 5
+	}
+	d.vp.Width = vpW
+	d.vp.Height = vpH
 }
 
 func (d *taskDetail) enterEditMode() {
@@ -127,6 +137,25 @@ func (d *taskDetail) applyEdits() (bool, tea.Cmd) {
 
 func (d taskDetail) Update(msg tea.Msg) (taskDetail, tea.Cmd) {
 	if !d.editing {
+		// Populate vp.lines so scroll guards (len == 0, AtBottom) work correctly.
+		// View() sets content on a local copy that doesn't persist to a.detail.
+		d.vp.SetContent(d.buildReadContent())
+		if msg, ok := msg.(tea.KeyMsg); ok {
+			switch msg.String() {
+			case "up", "k":
+				d.vp.LineUp(1)
+			case "down", "j":
+				d.vp.LineDown(1)
+			case "pgup", "ctrl+b":
+				d.vp.HalfViewUp()
+			case "pgdown", "ctrl+f":
+				d.vp.HalfViewDown()
+			case "g":
+				d.vp.GotoTop()
+			case "G":
+				d.vp.GotoBottom()
+			}
+		}
 		return d, nil
 	}
 
@@ -171,8 +200,20 @@ func (d taskDetail) View() string {
 	return d.readView()
 }
 
-func (d taskDetail) readView() string {
+// buildReadContent assembles the scrollable body text for the read view.
+// It is called from both Update (to populate vp.lines so scroll works) and
+// readView (to render the current frame).
+func (d taskDetail) buildReadContent() string {
 	t := d.task
+	w := d.vp.Width
+
+	// wrap word-wraps plain text to the viewport width, preserving existing newlines.
+	wrap := func(s string) string {
+		if w <= 0 {
+			return s
+		}
+		return lipgloss.NewStyle().Width(w).Render(s)
+	}
 
 	title := detailTitleStyle.Render(t.Title)
 
@@ -180,7 +221,7 @@ func (d taskDetail) readView() string {
 	lines = append(lines, title, "")
 
 	if t.Description != "" {
-		lines = append(lines, t.Description, "")
+		lines = append(lines, wrap(t.Description), "")
 	}
 
 	lines = append(lines, fmt.Sprintf("Status:  %s", t.Status))
@@ -260,14 +301,20 @@ func (d taskDetail) readView() string {
 	if len(d.comments) > 0 {
 		lines = append(lines, "", "Comments:")
 		for _, c := range d.comments {
-			lines = append(lines, fmt.Sprintf("  [%s] %s: %s", c.CreatedAt.Format("15:04"), c.Author, c.Body))
+			header := fmt.Sprintf("  [%s] %s:", c.CreatedAt.Format("15:04"), c.Author)
+			lines = append(lines, header)
+			lines = append(lines, wrap(c.Body))
 		}
 	}
 
-	lines = append(lines, "", helpStyle.Render("esc: close | e: edit | m/M: move | a: spawn agent | v: view | A: kill agent | x: delete"))
+	return strings.Join(lines, "\n")
+}
 
-	content := strings.Join(lines, "\n")
-	return overlayStyle.Width(d.width / 2).Render(content)
+func (d taskDetail) readView() string {
+	d.vp.SetContent(d.buildReadContent())
+	help := helpStyle.Render("esc:close  e:edit  j/k:scroll  g/G:top/btm  m/M:move  a:agent  v:view  A:kill  x:del  E:enrich")
+	inner := d.vp.View() + "\n" + help
+	return overlayStyle.Width(d.width / 2).Render(inner)
 }
 
 func (d taskDetail) editView() string {
