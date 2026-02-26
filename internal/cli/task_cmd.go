@@ -144,7 +144,7 @@ var (
 	createTitle string
 	createDesc  string
 	claimUser   string
-	noEnrich    bool
+	doEnrich    bool
 
 	// task update flags
 	updateTitle            string
@@ -184,7 +184,7 @@ func init() {
 
 	taskCreateCmd.Flags().StringVar(&createTitle, "title", "", "task title (required)")
 	taskCreateCmd.Flags().StringVar(&createDesc, "description", "", "task description")
-	taskCreateCmd.Flags().BoolVar(&noEnrich, "no-enrich", false, "skip automatic enrichment")
+	taskCreateCmd.Flags().BoolVar(&doEnrich, "enrich", false, "trigger automatic enrichment on creation")
 	taskCreateCmd.MarkFlagRequired("title")
 
 	taskClaimCmd.Flags().StringVar(&claimUser, "user", "", "username to claim as")
@@ -313,14 +313,8 @@ func runTaskCreate(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	// Set enrichment status
-	if noEnrich {
-		skipped := db.EnrichmentSkipped
-		svc.UpdateTaskFields(context.Background(), task.ID, db.TaskFieldUpdate{
-			EnrichmentStatus: &skipped,
-		})
-		task.EnrichmentStatus = skipped
-	} else {
+	// Set enrichment status (opt-in via --enrich; default is skipped)
+	if doEnrich {
 		pending := db.EnrichmentPending
 		svc.UpdateTaskFields(context.Background(), task.ID, db.TaskFieldUpdate{
 			EnrichmentStatus: &pending,
