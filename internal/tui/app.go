@@ -310,6 +310,20 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.serverActive = msg.connected
 		return a, nil
 
+	case agent.EnrichmentCompleteMsg:
+		status := "enriched"
+		if !msg.Ok {
+			status = "enrichment failed"
+		}
+		a.enrichmentActive--
+		if a.enrichmentActive < 0 {
+			a.enrichmentActive = 0
+		}
+		return a, tea.Batch(
+			a.loadTasks(),
+			a.notify(fmt.Sprintf("Task %s: %s", msg.Title, status)),
+		)
+
 	case clearNotificationMsg:
 		if a.notification != nil && time.Now().After(a.notification.expires) {
 			a.notification = nil
@@ -1130,51 +1144,10 @@ func (a App) killAgent(task db.Task) tea.Cmd {
 	}
 }
 
-// reconcileEnrichments checks enrichment agent windows and updates status when done.
-func (a *App) reconcileEnrichments(windows map[string]bool) []tea.Cmd {
-	var cmds []tea.Cmd
-	ctx := context.Background()
-
-	for _, task := range a.lastTasks {
-		if task.EnrichmentStatus != db.EnrichmentEnriching {
-			continue
-		}
-
-		winName := agent.EnrichmentWindowName(task)
-		if windows[winName] {
-			continue // Still running
-		}
-
-		// Window dead -- check if task was updated
-		freshTask, err := a.service.GetTask(ctx, task.ID)
-		if err != nil {
-			continue
-		}
-
-		var newStatus db.EnrichmentStatus
-		if freshTask.UpdatedAt.After(task.UpdatedAt) {
-			newStatus = db.EnrichmentDone
-		} else {
-			newStatus = db.EnrichmentError
-		}
-
-		empty := ""
-		a.service.UpdateTaskFields(ctx, task.ID, db.TaskFieldUpdate{
-			EnrichmentStatus:    &newStatus,
-			EnrichmentAgentName: &empty,
-		})
-		a.enrichmentActive--
-		if a.enrichmentActive < 0 {
-			a.enrichmentActive = 0
-		}
-
-		status := "enriched"
-		if newStatus == db.EnrichmentError {
-			status = "enrichment failed"
-		}
-		cmds = append(cmds, a.notify(fmt.Sprintf("Task %s: %s", freshTask.Title, status)))
-	}
-	return cmds
+// reconcileEnrichments is a no-op for the subprocess-based enrichment path.
+// Completion is handled by agent.EnrichmentCompleteMsg fired from RunEnrichment.
+func (a *App) reconcileEnrichments(_ map[string]bool) []tea.Cmd {
+	return nil
 }
 
 // pruneEnrichmentSeen removes IDs from the seen-set that no longer exist in the task list.
@@ -1196,9 +1169,6 @@ func (a *App) checkForEnrichableNewTasks() []tea.Cmd {
 	var cmds []tea.Cmd
 
 	if len(a.availableRunners) == 0 {
-		return nil
-	}
-	if !tmux.InTmux() {
 		return nil
 	}
 
@@ -1239,12 +1209,7 @@ func (a *App) checkForEnrichableNewTasks() []tea.Cmd {
 
 		t := task
 		r := runner
-		cmds = append(cmds, func() tea.Msg {
-			if err := agent.SpawnEnrichment(context.Background(), a.service, t, r); err != nil {
-				return errMsg{fmt.Errorf("enrichment spawn: %w", err)}
-			}
-			return notifyMsg{text: fmt.Sprintf("Enriching: %s", t.Title)}
-		})
+		cmds = append(cmds, agent.RunEnrichment(context.Background(), a.service, t, r))
 	}
 
 	return cmds

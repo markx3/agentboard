@@ -5,12 +5,14 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
 	"time"
 	"unicode/utf8"
 
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/markx3/agentboard/internal/board"
 	"github.com/markx3/agentboard/internal/db"
 	"github.com/markx3/agentboard/internal/tmux"
@@ -142,6 +144,42 @@ func SpawnEnrichment(ctx context.Context, svc board.Service, task db.Task, runne
 	}
 
 	return nil
+}
+
+// EnrichmentCompleteMsg is fired by RunEnrichment when enrichment finishes.
+type EnrichmentCompleteMsg struct {
+	TaskID string
+	Title  string
+	Ok     bool
+}
+
+// RunEnrichment runs enrichment as a subprocess (no tmux) and returns a tea.Cmd
+// that fires EnrichmentCompleteMsg when the subprocess exits.
+func RunEnrichment(ctx context.Context, svc board.Service, task db.Task, runner AgentRunner) tea.Cmd {
+	cmd := runner.BuildEnrichmentCommand(SpawnOpts{WorkDir: ".", Task: task})
+	if cmd == "" {
+		return nil
+	}
+	enriching := db.EnrichmentEnriching
+	runnerID := runner.ID()
+	svc.UpdateTaskFields(ctx, task.ID, db.TaskFieldUpdate{
+		EnrichmentStatus:    &enriching,
+		EnrichmentAgentName: &runnerID,
+	})
+	return func() tea.Msg {
+		_ = exec.CommandContext(ctx, "sh", "-c", cmd).Run()
+		fresh, err := svc.GetTask(ctx, task.ID)
+		status := db.EnrichmentError
+		if err == nil && fresh.UpdatedAt.After(task.UpdatedAt) {
+			status = db.EnrichmentDone
+		}
+		empty := ""
+		svc.UpdateTaskFields(ctx, task.ID, db.TaskFieldUpdate{
+			EnrichmentStatus:    &status,
+			EnrichmentAgentName: &empty,
+		})
+		return EnrichmentCompleteMsg{TaskID: task.ID, Title: task.Title, Ok: status == db.EnrichmentDone}
+	}
 }
 
 // Kill terminates a running agent by killing its tmux window and updating the task.
