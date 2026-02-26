@@ -102,6 +102,18 @@ func tableExists(ctx context.Context, conn *sql.DB, table string) (bool, error) 
 	return count > 0, nil
 }
 
+// applyMigration executes migrationSQL inside tx and updates schema_version to version.
+func applyMigration(ctx context.Context, tx *sql.Tx, version int, migrationSQL string) error {
+	if _, err := tx.ExecContext(ctx, migrationSQL); err != nil {
+		return fmt.Errorf("applying v%d migration: %w", version, err)
+	}
+	if _, err := tx.ExecContext(ctx,
+		"INSERT OR REPLACE INTO schema_version (version) VALUES (?)", version); err != nil {
+		return fmt.Errorf("updating schema version to %d: %w", version, err)
+	}
+	return nil
+}
+
 func (d *DB) migrate(ctx context.Context) error {
 	var currentVersion int
 	err := d.conn.QueryRowContext(ctx,
@@ -128,13 +140,8 @@ func (d *DB) migrate(ctx context.Context) error {
 			return fmt.Errorf("beginning v2 migration transaction: %w", txErr)
 		}
 		defer tx.Rollback()
-
-		if _, txErr = tx.ExecContext(ctx, migrateV1toV2); txErr != nil {
-			return fmt.Errorf("applying v2 migration: %w", txErr)
-		}
-		if _, txErr = tx.ExecContext(ctx,
-			"INSERT OR REPLACE INTO schema_version (version) VALUES (2)"); txErr != nil {
-			return fmt.Errorf("updating schema version to 2: %w", txErr)
+		if txErr = applyMigration(ctx, tx, 2, migrateV1toV2); txErr != nil {
+			return txErr
 		}
 		if txErr = tx.Commit(); txErr != nil {
 			return fmt.Errorf("committing v2 migration: %w", txErr)
@@ -147,13 +154,8 @@ func (d *DB) migrate(ctx context.Context) error {
 			return fmt.Errorf("beginning v3 migration transaction: %w", txErr)
 		}
 		defer tx.Rollback()
-
-		if _, txErr = tx.ExecContext(ctx, migrateV2toV3); txErr != nil {
-			return fmt.Errorf("applying v3 migration: %w", txErr)
-		}
-		if _, txErr = tx.ExecContext(ctx,
-			"INSERT OR REPLACE INTO schema_version (version) VALUES (3)"); txErr != nil {
-			return fmt.Errorf("updating schema version to 3: %w", txErr)
+		if txErr = applyMigration(ctx, tx, 3, migrateV2toV3); txErr != nil {
+			return txErr
 		}
 		if txErr = tx.Commit(); txErr != nil {
 			return fmt.Errorf("committing v3 migration: %w", txErr)
@@ -166,13 +168,8 @@ func (d *DB) migrate(ctx context.Context) error {
 			return fmt.Errorf("beginning v4 migration transaction: %w", txErr)
 		}
 		defer tx.Rollback()
-
-		if _, txErr = tx.ExecContext(ctx, migrateV3toV4); txErr != nil {
-			return fmt.Errorf("applying v4 migration: %w", txErr)
-		}
-		if _, txErr = tx.ExecContext(ctx,
-			"INSERT OR REPLACE INTO schema_version (version) VALUES (4)"); txErr != nil {
-			return fmt.Errorf("updating schema version to 4: %w", txErr)
+		if txErr = applyMigration(ctx, tx, 4, migrateV3toV4); txErr != nil {
+			return txErr
 		}
 		if txErr = tx.Commit(); txErr != nil {
 			return fmt.Errorf("committing v4 migration: %w", txErr)
@@ -191,13 +188,8 @@ func (d *DB) migrate(ctx context.Context) error {
 			return fmt.Errorf("beginning v6 migration transaction: %w", txErr)
 		}
 		defer tx.Rollback()
-
-		if _, txErr = tx.ExecContext(ctx, migrateV5toV6SQL); txErr != nil {
-			return fmt.Errorf("applying v6 migration: %w", txErr)
-		}
-		if _, txErr = tx.ExecContext(ctx,
-			"INSERT OR REPLACE INTO schema_version (version) VALUES (6)"); txErr != nil {
-			return fmt.Errorf("updating schema version to 6: %w", txErr)
+		if txErr = applyMigration(ctx, tx, 6, migrateV5toV6SQL); txErr != nil {
+			return txErr
 		}
 		if txErr = tx.Commit(); txErr != nil {
 			return fmt.Errorf("committing v6 migration: %w", txErr)

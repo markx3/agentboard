@@ -34,7 +34,6 @@ type taskDetail struct {
 	editField  int
 	inputs     [4]textinput.Model
 	descInput  textarea.Model
-	saveNeeded bool
 	titleEmpty bool
 }
 
@@ -110,18 +109,20 @@ func (d *taskDetail) nextField() {
 	d.focusField(next)
 }
 
-func (d *taskDetail) applyEdits() bool {
+func (d *taskDetail) applyEdits() (bool, tea.Cmd) {
 	title := strings.TrimSpace(d.inputs[0].Value())
 	if title == "" {
-		return false
+		return false, nil
 	}
 	d.task.Title = title
 	d.task.Description = strings.TrimSpace(d.descInput.Value())
 	d.task.Assignee = strings.TrimSpace(d.inputs[1].Value())
 	d.task.BranchName = strings.TrimSpace(d.inputs[2].Value())
 	d.task.PRUrl = strings.TrimSpace(d.inputs[3].Value())
-	d.saveNeeded = true
-	return true
+	t := d.task
+	return true, func() tea.Msg {
+		return taskSaveRequestedMsg{task: t}
+	}
 }
 
 func (d taskDetail) Update(msg tea.Msg) (taskDetail, tea.Cmd) {
@@ -136,12 +137,13 @@ func (d taskDetail) Update(msg tea.Msg) (taskDetail, tea.Cmd) {
 			d.nextField()
 			return d, nil
 		case "ctrl+s":
-			if !d.applyEdits() {
+			ok, cmd := d.applyEdits()
+			if !ok {
 				d.titleEmpty = true
 				return d, nil
 			}
 			d.editing = false
-			return d, nil
+			return d, cmd
 		}
 	}
 

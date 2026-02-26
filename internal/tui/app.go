@@ -31,6 +31,7 @@ const (
 	overlayHelp
 	overlayConfirm
 	overlayPicker
+	overlaySuggestions
 )
 
 // pendingRecon tracks a task whose agent window just died.
@@ -91,6 +92,10 @@ type App struct {
 	searching   bool
 	searchInput textinput.Model
 	searchQuery string
+	// Suggestions
+	pendingSuggestions []db.Suggestion
+	lastPendingCount   int
+	suggestionOverlay  suggestionOverlay
 }
 
 // AppOption configures optional App behavior.
@@ -177,6 +182,8 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.lastTasks = msg.tasks
 		a.lastDeps = msg.deps
 		a.board.LoadTasks(a.filteredTasks(msg.tasks), a.lastDeps)
+		// Prune deleted task IDs from enrichmentSeen to prevent memory leak
+		pruneEnrichmentSeen(a.enrichmentSeen, msg.tasks)
 		// Follow cursor to the column where a task was just moved
 		if a.cursorFollow != nil {
 			a.board.FocusOnStatus(a.cursorFollow.newStatus)
@@ -218,6 +225,23 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.notify("Task deleted"),
 		)
 
+	case taskSaveRequestedMsg:
+		return a, a.saveTask(msg.task)
+
+	case suggestionAcceptedMsg:
+		a.overlay = overlayNone
+		return a, tea.Batch(
+			a.acceptSuggestion(msg.suggestionID),
+			a.loadSuggestions(),
+			a.loadTasks(),
+		)
+
+	case suggestionDismissedMsg:
+		return a, tea.Batch(
+			a.dismissSuggestion(msg.suggestionID),
+			a.loadSuggestions(),
+		)
+
 	case taskSavedMsg:
 		// Refresh the detail view with saved data
 		a.detail.task = msg.task
@@ -232,8 +256,19 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmds := a.reconcileAgentsWithWindows(windows)
 		cmds = append(cmds, a.reconcileEnrichments(windows)...)
 		cmds = append(cmds, a.checkForEnrichableNewTasks()...)
-		cmds = append(cmds, a.scheduleAgentTick(), a.loadTasks())
+		cmds = append(cmds, a.scheduleAgentTick(), a.loadTasks(), a.loadSuggestions())
 		return a, tea.Batch(cmds...)
+
+	case suggestionsLoadedMsg:
+		newCount := len(msg.items)
+		var cmd tea.Cmd
+		if newCount > a.lastPendingCount {
+			delta := newCount - a.lastPendingCount
+			cmd = a.notify(fmt.Sprintf("%d new proposal(s) pending — press s to review", delta))
+		}
+		a.pendingSuggestions = msg.items
+		a.lastPendingCount = newCount
+		return a, cmd
 
 	case errMsg:
 		return a, a.notify(fmt.Sprintf("Error: %s", msg.err))
@@ -450,6 +485,8 @@ func (a App) updateOverlay(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.overlay = overlayNone
 			return a, nil
 		}
+	case overlaySuggestions:
+		return a.updateSuggestionOverlay(msg)
 	}
 
 	return a, nil
@@ -500,6 +537,20 @@ func (a App) updatePicker(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return a, cmd
 }
 
+func (a App) updateSuggestionOverlay(msg tea.Msg) (tea.Model, tea.Cmd) {
+	keyMsg, ok := msg.(tea.KeyMsg)
+	if !ok {
+		return a, nil
+	}
+	if key.Matches(keyMsg, keys.Escape) {
+		a.overlay = overlayNone
+		return a, nil
+	}
+	var cmd tea.Cmd
+	a.suggestionOverlay, cmd = a.suggestionOverlay.Update(keyMsg)
+	return a, cmd
+}
+
 func (a App) updateForm(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
@@ -537,11 +588,6 @@ func (a App) updateDetail(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		var cmd tea.Cmd
 		a.detail, cmd = a.detail.Update(msg)
-		// Check if save was triggered
-		if a.detail.saveNeeded {
-			a.detail.saveNeeded = false
-			return a, a.saveTask(a.detail.task)
-		}
 		return a, cmd
 	}
 
@@ -682,6 +728,12 @@ func (a App) updateBoard(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.searchInput.SetValue("")
 			a.searchInput.Focus()
 			return a, nil
+		case key.Matches(msg, keys.Suggestions):
+			if len(a.pendingSuggestions) > 0 {
+				a.suggestionOverlay = newSuggestionOverlay(a.pendingSuggestions, a.width, a.height)
+				a.overlay = overlaySuggestions
+			}
+			return a, nil
 		}
 	}
 
@@ -725,6 +777,10 @@ func (a App) View() string {
 	}
 
 	summaryBar := a.board.summaryBar()
+	if a.lastPendingCount > 0 {
+		badge := suggestionBadgeStyle.Render(fmt.Sprintf("  s: %d pending", a.lastPendingCount))
+		summaryBar = summaryBar + badge
+	}
 	boardView := a.board.View()
 	statusBar := a.board.statusBar()
 
@@ -750,7 +806,7 @@ func (a App) View() string {
 		if a.searchQuery != "" {
 			filterHint = fmt.Sprintf("  [filter: %s] esc:clear", a.searchQuery)
 		}
-		help = helpStyle.Render(fmt.Sprintf(" %s  h/l:columns  j/k:tasks  tab:mode  o:new  m/M:move  a:agent  v:view  enter:open  /:search  ?:help  q:quit%s", modeStr, filterHint))
+		help = helpStyle.Render(fmt.Sprintf(" %s  h/l:columns  j/k:tasks  tab:mode  o:new  m/M:move  a:agent  v:view  enter:open  s:proposals  /:search  ?:help  q:quit%s", modeStr, filterHint))
 	}
 
 	mainView := lipgloss.JoinVertical(lipgloss.Left, summaryBar, boardView, statusBar, help)
@@ -767,6 +823,8 @@ func (a App) View() string {
 		return a.renderOverlay(mainView, a.helpView())
 	case overlayConfirm:
 		return a.renderOverlay(mainView, a.confirmView())
+	case overlaySuggestions:
+		return a.renderOverlay(mainView, a.suggestionOverlay.View())
 	}
 
 	return mainView
@@ -808,6 +866,7 @@ Board Modes (toggle with tab):
 
 General:
   tab       Toggle Agent/Detail mode
+  s         Review pending proposals
   /         Search tasks
   ?         Toggle help
   esc       Close overlay
@@ -863,6 +922,34 @@ func bellCmd() tea.Cmd {
 func (a App) notify(text string) tea.Cmd {
 	return func() tea.Msg {
 		return notifyMsg{text: text}
+	}
+}
+
+func (a App) loadSuggestions() tea.Cmd {
+	return func() tea.Msg {
+		items, err := a.service.ListPendingSuggestions(context.Background())
+		if err != nil {
+			return nil // non-fatal
+		}
+		return suggestionsLoadedMsg{items: items}
+	}
+}
+
+func (a App) acceptSuggestion(id string) tea.Cmd {
+	return func() tea.Msg {
+		if err := a.service.AcceptSuggestion(context.Background(), id); err != nil {
+			return errMsg{err}
+		}
+		return notifyMsg{text: "Proposal accepted — task created"}
+	}
+}
+
+func (a App) dismissSuggestion(id string) tea.Cmd {
+	return func() tea.Msg {
+		if err := a.service.DismissSuggestion(context.Background(), id); err != nil {
+			return errMsg{err}
+		}
+		return notifyMsg{text: "Proposal dismissed"}
 	}
 }
 
@@ -1088,6 +1175,20 @@ func (a *App) reconcileEnrichments(windows map[string]bool) []tea.Cmd {
 		cmds = append(cmds, a.notify(fmt.Sprintf("Task %s: %s", freshTask.Title, status)))
 	}
 	return cmds
+}
+
+// pruneEnrichmentSeen removes IDs from the seen-set that no longer exist in the task list.
+// This prevents the map from growing unboundedly as tasks are deleted.
+func pruneEnrichmentSeen(seen map[string]db.EnrichmentStatus, tasks []db.Task) {
+	live := make(map[string]bool, len(tasks))
+	for _, t := range tasks {
+		live[t.ID] = true
+	}
+	for id := range seen {
+		if !live[id] {
+			delete(seen, id)
+		}
+	}
 }
 
 // checkForEnrichableNewTasks spawns enrichment agents for tasks with pending enrichment status.
