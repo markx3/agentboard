@@ -18,6 +18,7 @@ import (
 var (
 	taskFilterStatus   string
 	taskFilterAssignee string
+	taskFilterSearch   string
 	taskOutputJSON     bool
 )
 
@@ -143,7 +144,7 @@ var (
 	createTitle string
 	createDesc  string
 	claimUser   string
-	noEnrich    bool
+	doEnrich    bool
 
 	// task update flags
 	updateTitle            string
@@ -179,10 +180,11 @@ func init() {
 
 	taskListCmd.Flags().StringVar(&taskFilterStatus, "status", "", "filter by status")
 	taskListCmd.Flags().StringVar(&taskFilterAssignee, "assignee", "", "filter by assignee")
+	taskListCmd.Flags().StringVar(&taskFilterSearch, "search", "", "filter by title/description substring (case-insensitive)")
 
 	taskCreateCmd.Flags().StringVar(&createTitle, "title", "", "task title (required)")
 	taskCreateCmd.Flags().StringVar(&createDesc, "description", "", "task description")
-	taskCreateCmd.Flags().BoolVar(&noEnrich, "no-enrich", false, "skip automatic enrichment")
+	taskCreateCmd.Flags().BoolVar(&doEnrich, "enrich", false, "trigger automatic enrichment on creation")
 	taskCreateCmd.MarkFlagRequired("title")
 
 	taskClaimCmd.Flags().StringVar(&claimUser, "user", "", "username to claim as")
@@ -268,6 +270,10 @@ func runTaskList(cmd *cobra.Command, args []string) error {
 		tasks = filtered
 	}
 
+	if taskFilterSearch != "" {
+		tasks = filterTasksBySearch(tasks, taskFilterSearch)
+	}
+
 	// Populate dependency data
 	deps, depsErr := svc.ListAllDependencies(ctx)
 	if depsErr == nil && deps != nil {
@@ -307,14 +313,8 @@ func runTaskCreate(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	// Set enrichment status
-	if noEnrich {
-		skipped := db.EnrichmentSkipped
-		svc.UpdateTaskFields(context.Background(), task.ID, db.TaskFieldUpdate{
-			EnrichmentStatus: &skipped,
-		})
-		task.EnrichmentStatus = skipped
-	} else {
+	// Set enrichment status (opt-in via --enrich; default is skipped)
+	if doEnrich {
 		pending := db.EnrichmentPending
 		svc.UpdateTaskFields(context.Background(), task.ID, db.TaskFieldUpdate{
 			EnrichmentStatus: &pending,
@@ -897,6 +897,18 @@ func runTaskSuggestionDismiss(cmd *cobra.Command, args []string) error {
 
 	fmt.Println("Suggestion dismissed")
 	return nil
+}
+
+func filterTasksBySearch(tasks []db.Task, q string) []db.Task {
+	q = strings.ToLower(q)
+	var out []db.Task
+	for _, t := range tasks {
+		if strings.Contains(strings.ToLower(t.Title), q) ||
+			strings.Contains(strings.ToLower(t.Description), q) {
+			out = append(out, t)
+		}
+	}
+	return out
 }
 
 func findByPrefix(tasks []db.Task, prefix string) string {

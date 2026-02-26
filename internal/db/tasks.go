@@ -73,14 +73,15 @@ func (d *DB) CreateTask(ctx context.Context, title, description string) (*Task, 
 	}
 
 	task := &Task{
-		ID:          id,
-		Title:       title,
-		Description: description,
-		Status:      StatusBacklog,
-		AgentStatus: AgentIdle,
-		Position:    pos,
-		CreatedAt:   now,
-		UpdatedAt:   now,
+		ID:               id,
+		Title:            title,
+		Description:      description,
+		Status:           StatusBacklog,
+		AgentStatus:      AgentIdle,
+		EnrichmentStatus: EnrichmentSkipped,
+		Position:         pos,
+		CreatedAt:        now,
+		UpdatedAt:        now,
 	}
 
 	_, err = tx.ExecContext(ctx,

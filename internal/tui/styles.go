@@ -86,4 +86,9 @@ var (
 	// Blocked indicator (from main)
 	blockedStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#ff79c6"))
+
+	// Suggestion badge in summary bar
+	suggestionBadgeStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("#e6b450")).
+				Bold(true)
 )

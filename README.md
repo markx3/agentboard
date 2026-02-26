@@ -17,6 +17,8 @@ Real-time collaborative Kanban board for AI coding agents. Terminal-native. Agen
 | [gh CLI](https://cli.github.com/) | 2.0+ | GitHub authentication |
 | AI CLI tool | any | Claude Code, Cursor, Antigravity, etc. |
 
+> **Note:** tmux is only required for spawning work agents. The TUI and task enrichment work without tmux.
+
 **Platform:** macOS and Linux are fully supported. Windows requires WSL.
 
 ## Installation
@@ -69,6 +71,8 @@ agentboard --connect host:port     # manual connection
 - **Real-time sync** via WebSocket (peer-leader model)
 - **Agent-agnostic** — works with any AI CLI tool
 - **Agent lifecycle management** — spawn, monitor, and kill agents via tmux
+- **Task enrichment** — opt-in AI enrichment adds description and context to new tasks
+- **AI proposal inbox** — agents propose new tasks; review and accept/dismiss via `s`
 - **CLI-first design** — TUI for interactive use, subcommands for scripting
 - **SQLite-backed** local persistence
 - **Git worktree isolation** per task
@@ -91,8 +95,10 @@ agentboard --connect host:port     # manual connection
 | `a` | Spawn agent |
 | `A` | Kill agent |
 | `v` | View agent session |
-| `tab` | Toggle board mode |
+| `E` | Toggle task enrichment on/off |
+| `s` | Review AI proposals |
 | `/` | Search tasks |
+| `tab` | Toggle Agent / Detail mode |
 | `?` | Help |
 | `q` | Quit |
 | `esc` | Close overlay / cancel |
@@ -123,10 +129,12 @@ Launches the TUI. Use `--connect` to connect to a specific server instead of aut
 | `init` | Initialize project config | -- |
 | `serve` | Start dedicated server (no TUI) | `--port`/`-p` (default: random), `--bind` (default: 127.0.0.1), `--tunnel` |
 | `status` | Show board summary | `--json` (includes agents and enrichments) |
-| `task list` | List tasks | `--status`, `--assignee`, `--json` |
-| `task create` | Create a new task | `--title` (required), `--description`, `--no-enrich` |
+| `task list` | List tasks | `--status`, `--assignee`, `--search`, `--json` |
+| `task create` | Create a new task | `--title` (required), `--description`, `--enrich` |
 | `task move <id> <column>` | Move task to column | -- |
 | `task get <id>` | Get task details | `--json` |
+| `task update <id>` | Update task fields | `--title`, `--description`, `--assignee`, `--branch`, `--pr-url`, `--add-dep`, `--remove-dep` |
+| `task comment <id>` | Add a comment to a task | `--author`, `--body` |
 | `task delete <id>` | Delete a task | -- |
 | `task claim <id>` | Claim a task | `--user` |
 | `task unclaim <id>` | Unclaim a task | -- |
@@ -134,17 +142,52 @@ Launches the TUI. Use `--connect` to connect to a specific server instead of aut
 | `task comment <id>` | Add a comment to a task | `--author` (required), `--body` (required) |
 | `task block <id> <blocker-id>` | Mark task as blocked by another | -- |
 | `task unblock <id> <blocker-id>` | Remove a dependency | -- |
-| `task suggest <id>` | Create a suggestion for a task | `--author`, `--title`, `--message` (required) |
-| `task propose` | Propose a new task | `--title` (required), `--description`, `--reason` |
+| `task suggest` | Propose a new task (AI inbox) | `--title` (required), `--description` |
 | `task suggestions` | List suggestions | `--status` (pending/accepted/dismissed) |
 | `task suggestion accept <id>` | Accept a suggestion | -- |
 | `task suggestion dismiss <id>` | Dismiss a suggestion | -- |
 | `agent start <task-id>` | Spawn an agent for a task | -- |
 | `agent kill <task-id>` | Kill a running agent | -- |
-| `agent status <task-id> <msg>` | Update agent activity shown on the board | -- |
+| `agent status <task-id> <msg>` | Report agent activity | `--json` |
 | `agent request-reset <task-id>` | Request fresh context for agent's next stage | -- |
 
 **Valid columns for `task move`:** `backlog`, `brainstorm`, `planning`, `in_progress`, `review`, `done`
+
+### Task enrichment
+
+Enrichment runs Claude Code in one-shot (`--print`) mode to add context to a task — it scans git history, lists open tasks, then updates the description and leaves a comment.
+
+Enrichment is **opt-in**. New tasks are not enriched by default.
+
+```bash
+# Opt in at creation
+agentboard task create --title "My task" --enrich
+
+# Toggle in TUI: press E on any task (pending ↔ skipped)
+# A task set to "pending" will be picked up by the next poll tick (~2.5s)
+```
+
+The enrichment status is shown in the task detail view (`Enrich: pending / enriching / done / error / skipped`).
+
+### AI proposal inbox
+
+Agents (or scripts) can propose new tasks without creating them directly:
+
+```bash
+agentboard task suggest --title "Refactor auth layer" --description "..."
+```
+
+Proposals appear in the TUI's suggestion inbox. Press `s` to review, then accept or dismiss each one. Accepted proposals become real tasks.
+
+### `agentboard status --json`
+
+Machine-readable board summary — useful for agents deciding what to work on next:
+
+```bash
+agentboard status --json
+```
+
+Returns task counts by column, active agents, and enrichment activity.
 
 **Task IDs** accept short prefixes (first 8 chars shown in `task list`).
 

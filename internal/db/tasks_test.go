@@ -259,8 +259,8 @@ func TestEnrichmentFields(t *testing.T) {
 	}
 
 	// Defaults
-	if task.EnrichmentStatus != db.EnrichmentNone {
-		t.Errorf("default enrichment_status: got %q, want %q", task.EnrichmentStatus, db.EnrichmentNone)
+	if task.EnrichmentStatus != db.EnrichmentSkipped {
+		t.Errorf("default enrichment_status: got %q, want %q", task.EnrichmentStatus, db.EnrichmentSkipped)
 	}
 	if task.EnrichmentAgentName != "" {
 		t.Errorf("default enrichment_agent_name: got %q, want empty", task.EnrichmentAgentName)

@@ -58,4 +58,21 @@ type taskSavedMsg struct {
 	task db.Task
 }
 
+// taskSaveRequestedMsg is emitted by the task detail overlay when the user confirms an edit.
+type taskSaveRequestedMsg struct {
+	task db.Task
+}
+
+type suggestionsLoadedMsg struct {
+	items []db.Suggestion
+}
+
+type suggestionAcceptedMsg struct {
+	suggestionID string
+}
+
+type suggestionDismissedMsg struct {
+	suggestionID string
+}
+
 type clearNotificationMsg struct{}

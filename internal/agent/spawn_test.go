@@ -182,9 +182,9 @@ func TestClaudeRunnerBuildEnrichmentCommand(t *testing.T) {
 		t.Fatal("BuildEnrichmentCommand returned empty string")
 	}
 
-	// Should use timeout
-	if !strings.Contains(cmd, "timeout") {
-		t.Error("enrichment command should contain timeout")
+	// Should use --print for non-interactive one-shot execution
+	if !strings.Contains(cmd, "--print") {
+		t.Error("enrichment command should use --print for non-interactive execution")
 	}
 
 	// Should use --dangerously-skip-permissions for autonomous operation
