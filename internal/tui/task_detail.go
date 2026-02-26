@@ -9,6 +9,7 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/glamour"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/markx3/agentboard/internal/agent"
 	"github.com/markx3/agentboard/internal/board"
@@ -200,6 +201,20 @@ func (d taskDetail) View() string {
 	return d.readView()
 }
 
+// renderMarkdown renders Markdown source s to ANSI-styled text at the given
+// column width. Falls back to plain lipgloss word-wrap if glamour fails or
+// width is non-positive.
+func renderMarkdown(s string, width int) string {
+	if width <= 0 {
+		return s
+	}
+	rendered, err := glamour.Render(s, "dark")
+	if err != nil {
+		return lipgloss.NewStyle().Width(width).Render(s)
+	}
+	return strings.TrimRight(rendered, "\n")
+}
+
 // buildReadContent assembles the scrollable body text for the read view.
 // It is called from both Update (to populate vp.lines so scroll works) and
 // readView (to render the current frame).
@@ -221,7 +236,7 @@ func (d taskDetail) buildReadContent() string {
 	lines = append(lines, title, "")
 
 	if t.Description != "" {
-		lines = append(lines, wrap(t.Description), "")
+		lines = append(lines, renderMarkdown(t.Description, w), "")
 	}
 
 	lines = append(lines, fmt.Sprintf("Status:  %s", t.Status))
